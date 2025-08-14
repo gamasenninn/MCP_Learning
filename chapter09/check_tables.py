@@ -9,11 +9,11 @@ async def main():
     
     async with client:
         await client.ping()
-        print("✅ データベースサーバーに接続しました\n")
+        print("[OK] データベースサーバーに接続しました\n")
         
         # テーブル一覧を取得
         tables = await client.call_tool("list_tables", {})
-        print("📋 利用可能なテーブル:")
+        print("[LIST] 利用可能なテーブル:")
         print(tables)
 
 if __name__ == "__main__":

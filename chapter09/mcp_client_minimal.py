@@ -14,15 +14,15 @@ async def main():
     async with client:
         # サーバーに接続確認
         await client.ping()
-        print("✅ サーバーに接続しました")
+        print("[OK] サーバーに接続しました")
         
         # 利用可能なツールを取得
         tools = await client.list_tools()
-        print(f"\n📋 利用可能なツール: {[t.name for t in tools]}")
+        print(f"\n[LIST] 利用可能なツール: {[t.name for t in tools]}")
         
         # ツールを呼び出す
         result = await client.call_tool("add", {"a": 100, "b": 200})
-        print(f"\n🧮 100 + 200 = {result}")
+        print(f"\n[計算] 100 + 200 = {result}")
 
 if __name__ == "__main__":
     asyncio.run(main())

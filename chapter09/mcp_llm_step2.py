@@ -162,13 +162,13 @@ async def demonstrate_prep():
     
     # ツール情報をLLM用に整形
     tools_desc = prep.prepare_tools_for_llm(collector.tools_schema)
-    print("📝 LLM用に整形されたツール情報:")
+    print("[INFO] LLM用に整形されたツール情報:")
     print(tools_desc[:500] + "...")  # 最初の500文字を表示
     
     # プロンプトの例
     query = "東京の天気を教えて"
     prompt = prep.create_tool_selection_prompt(query, tools_desc)
-    print("\n📋 生成されたプロンプト:")
+    print("\n[LIST] 生成されたプロンプト:")
     print(prompt[:800] + "...")  # 最初の800文字を表示
 
 if __name__ == "__main__":

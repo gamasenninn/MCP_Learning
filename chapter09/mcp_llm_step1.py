@@ -22,7 +22,7 @@ class ToolCollector:
         """設定ファイルを読み込む"""
         config_path = Path(config_file)
         if not config_path.exists():
-            print(f"⚠️ 設定ファイル {config_file} が見つかりません")
+            print(f"[WARNING] 設定ファイル {config_file} が見つかりません")
             # デフォルト設定を使用
             self.servers = {
                 "calculator": {

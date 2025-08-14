@@ -21,14 +21,14 @@ async def test_from_different_dirs():
         client = Client(server_path)
         async with client:
             await client.ping()
-            print("✅ 接続成功")
+            print("[OK] 接続成功")
             
             # list_tablesを実行
             result = await client.call_tool("list_tables", {})
-            print(f"📋 テーブル数: {len(result.data) if hasattr(result, 'data') else 'unknown'}")
+            print(f"[LIST] テーブル数: {len(result.data) if hasattr(result, 'data') else 'unknown'}")
             
     except Exception as e:
-        print(f"❌ エラー: {e}")
+        print(f"[ERROR] エラー: {e}")
     
     print()
     
@@ -42,14 +42,14 @@ async def test_from_different_dirs():
         client = Client("database_server.py")  # 相対パスで指定
         async with client:
             await client.ping()
-            print("✅ 接続成功")
+            print("[OK] 接続成功")
             
             # list_tablesを実行
             result = await client.call_tool("list_tables", {})
-            print(f"📋 テーブル数: {len(result.data) if hasattr(result, 'data') else 'unknown'}")
+            print(f"[LIST] テーブル数: {len(result.data) if hasattr(result, 'data') else 'unknown'}")
             
     except Exception as e:
-        print(f"❌ エラー: {e}")
+        print(f"[ERROR] エラー: {e}")
     finally:
         os.chdir(original_dir)  # 元のディレクトリに戻る
     
@@ -64,14 +64,14 @@ async def test_from_different_dirs():
         client = Client(r"chapter06\database_server.py")  # 相対パスで指定
         async with client:
             await client.ping()
-            print("✅ 接続成功")
+            print("[OK] 接続成功")
             
             # list_tablesを実行
             result = await client.call_tool("list_tables", {})
-            print(f"📋 テーブル数: {len(result.data) if hasattr(result, 'data') else 'unknown'}")
+            print(f"[LIST] テーブル数: {len(result.data) if hasattr(result, 'data') else 'unknown'}")
             
     except Exception as e:
-        print(f"❌ エラー: {e}")
+        print(f"[ERROR] エラー: {e}")
     finally:
         os.chdir(original_dir)  # 元のディレクトリに戻る
 
@@ -79,4 +79,4 @@ if __name__ == "__main__":
     print("database_server.pyのパス依存問題テスト")
     print("=" * 50)
     asyncio.run(test_from_different_dirs())
-    print("\n✅ テスト完了")
+    print("\n[OK] テスト完了")

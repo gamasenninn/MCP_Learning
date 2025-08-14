@@ -58,7 +58,7 @@ class CompleteLLMClient:
                 await client.__aenter__()
                 self.clients[server_name] = client
             except Exception as e:
-                print(f"  ⚠️ {server_name}への接続失敗: {e}")
+                print(f"  [WARNING] {server_name}への接続失敗: {e}")
         
         print("[完了] 初期化完了\n", flush=True)
         self._show_available_tools()
@@ -145,8 +145,8 @@ needs_tool=falseの場合:
         try:
             return self.prep.validate_llm_response(raw_response)
         except Exception as e:
-            print(f"  ❌ パースエラー: {e}")
-            print(f"  📝 完全なレスポンス:")
+            print(f"  [ERROR] パースエラー: {e}")
+            print(f"  [INFO] 完全なレスポンス:")
             print(raw_response)
             raise
     

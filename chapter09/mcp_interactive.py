@@ -66,7 +66,7 @@ class MultiServerClient:
             return True
         
         server_info = self.servers[name]
-        console.print(f"[cyan]🔌 {name} に接続中... ({server_info['chapter']})[/cyan]")
+        console.print(f"[cyan][接続中] {name} に接続中... ({server_info['chapter']})[/cyan]")
         
         try:
             # FastMCPクライアントを作成
@@ -78,11 +78,11 @@ class MultiServerClient:
             
             # ツール一覧を取得
             tools = await client.list_tools()
-            console.print(f"[green]✅ {name} に接続しました（{len(tools)}個のツール）[/green]")
+            console.print(f"[green][OK] {name} に接続しました（{len(tools)}個のツール）[/green]")
             return True
             
         except Exception as e:
-            console.print(f"[red]❌ 接続エラー: {e}[/red]")
+            console.print(f"[red][ERROR] 接続エラー: {e}[/red]")
             return False
     
     async def disconnect_server(self, name: str):
@@ -90,7 +90,7 @@ class MultiServerClient:
         if name in self.clients:
             await self.clients[name].__aexit__(None, None, None)
             del self.clients[name]
-            console.print(f"[yellow]👋 {name} から切断しました[/yellow]")
+            console.print(f"[yellow][INFO] {name} から切断しました[/yellow]")
     
     async def call_tool(self, server_name: str, tool_name: str, arguments: dict):
         """ツールを呼び出す"""
@@ -100,7 +100,7 @@ class MultiServerClient:
                 return None
         
         client = self.clients[server_name]
-        console.print(f"[dim]🚀 {server_name}.{tool_name} を実行中...[/dim]")
+        console.print(f"[dim][実行] {server_name}.{tool_name} を実行中...[/dim]")
         
         try:
             result = await client.call_tool(tool_name, arguments)
@@ -128,7 +128,7 @@ class MultiServerClient:
         table.add_column("作成章")
         
         for name, info in self.servers.items():
-            status = "🟢 接続中" if name in self.clients else "⭕ 未接続"
+            status = "[接続中] 接続中" if name in self.clients else "[未接続] 未接続"
             table.add_row(name, status, info["description"], info["chapter"])
         
         console.print(table)
@@ -173,7 +173,7 @@ class MultiServerClient:
         console.print(Panel(
             "[bold]デモ: 複数サーバーの連携[/bold]\n\n"
             "複数のツールを組み合わせて実用的なタスクを実行します",
-            title="🎯 統合デモ",
+            title="[デモ] 統合デモ",
             border_style="green"
         ))
         
@@ -204,7 +204,7 @@ print("Done!")
             if weather_text:
                 console.print(f"   天気情報: {weather_text[:200]}")
             
-            console.print("\n[green]✨ デモ完了！3つのサーバーを連携できました[/green]")
+            console.print("\n[green][完了] デモ完了！3つのサーバーを連携できました[/green]")
             console.print("[dim]計算→コード実行→情報取得という実用的なワークフローを実行しました[/dim]")
             
         except Exception as e:

@@ -34,7 +34,7 @@ class SimpleLLMClient:
     
     async def collect_all_tools(self):
         """全サーバーのツール情報を収集"""
-        print("🔍 ツール情報を収集中...")
+        print("[検索] ツール情報を収集中...")
         
         for server_name, server_info in self.servers.items():
             if server_name not in self.clients:
@@ -56,7 +56,7 @@ class SimpleLLMClient:
                 }
                 self.tools_schema[server_name].append(tool_info)
             
-            print(f"  ✅ {server_name}: {len(tools)}個のツール")
+            print(f"  [OK] {server_name}: {len(tools)}個のツール")
     
     def prepare_tools_for_llm(self) -> str:
         """ツール情報をLLM用に整形"""
@@ -149,16 +149,16 @@ class SimpleLLMClient:
             return result
             
         except json.JSONDecodeError as e:
-            print(f"❌ JSON解析エラー: {e}")
+            print(f"[ERROR] JSON解析エラー: {e}")
             return None
         except Exception as e:
-            print(f"❌ エラー: {e}")
+            print(f"[ERROR] エラー: {e}")
             return None
     
     async def execute_tool(self, server_name: str, tool_name: str, arguments: dict):
         """MCPツールを実行"""
         if server_name not in self.clients:
-            print(f"❌ サーバー {server_name} が見つかりません")
+            print(f"[ERROR] サーバー {server_name} が見つかりません")
             return None
         
         try:
@@ -175,12 +175,12 @@ class SimpleLLMClient:
             return str(result)
             
         except Exception as e:
-            print(f"❌ ツール実行エラー: {e}")
+            print(f"[ERROR] ツール実行エラー: {e}")
             return None
     
     async def process_query(self, query: str):
         """ユーザーのクエリを処理"""
-        print(f"\n👤 ユーザー: {query}")
+        print(f"\n[ユーザー] ユーザー: {query}")
         
         # ツール情報が未収集の場合は収集
         if not self.tools_schema:
@@ -190,12 +190,12 @@ class SimpleLLMClient:
         selection = await self.select_tool_with_llm(query)
         
         if not selection:
-            print("🤖 アシスタント: 申し訳ありません。リクエストを理解できませんでした。")
+            print("[アシスタント] アシスタント: 申し訳ありません。リクエストを理解できませんでした。")
             return
         
         if selection.get("action") == "response":
             # 直接回答
-            print(f"🤖 アシスタント: {selection.get('message', '')}")
+            print(f"[アシスタント] アシスタント: {selection.get('message', '')}")
             return
         
         # ツールを実行
@@ -229,9 +229,9 @@ class SimpleLLMClient:
                     break
         
         if reasoning:
-            print(f"💭 判断: {reasoning}")
+            print(f"[INFO] 判断: {reasoning}")
         
-        print(f"🔧 実行: {server}.{tool} {arguments}")
+        print(f"[ツール] 実行: {server}.{tool} {arguments}")
         
         result = await self.execute_tool(server, tool, arguments)
         
@@ -255,14 +255,14 @@ class SimpleLLMClient:
                 temperature=0.7
             )
             
-            print(f"🤖 アシスタント: {response.choices[0].message.content}")
+            print(f"[アシスタント] アシスタント: {response.choices[0].message.content}")
         else:
-            print("🤖 アシスタント: ツールの実行に失敗しました。")
+            print("[アシスタント] アシスタント: ツールの実行に失敗しました。")
     
     async def interactive_session(self):
         """対話型セッション"""
         print("\n" + "="*50)
-        print("🤖 LLM統合MCPクライアント（簡略版）")
+        print("[アシスタント] LLM統合MCPクライアント（簡略版）")
         print("="*50)
         print("自然言語で質問してください。'exit'で終了します。\n")
         
@@ -271,10 +271,10 @@ class SimpleLLMClient:
         
         while True:
             try:
-                query = input("\n💬 > ")
+                query = input("\n[INPUT] > ")
                 
                 if query.lower() in ['exit', 'quit', '終了']:
-                    print("👋 終了します")
+                    print("[INFO] 終了します")
                     break
                 
                 if not query.strip():
@@ -283,10 +283,10 @@ class SimpleLLMClient:
                 await self.process_query(query)
                 
             except KeyboardInterrupt:
-                print("\n👋 終了します")
+                print("\n[INFO] 終了します")
                 break
             except Exception as e:
-                print(f"❌ エラー: {e}")
+                print(f"[ERROR] エラー: {e}")
     
     async def cleanup(self):
         """クリーンアップ"""
@@ -304,7 +304,7 @@ async def main():
             "2の10乗を計算して"
         ]
         
-        print("📝 デモモード - サンプルクエリを実行します\n")
+        print("[INFO] デモモード - サンプルクエリを実行します\n")
         
         for query in demo_queries:
             await client.process_query(query)
