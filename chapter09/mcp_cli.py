@@ -108,7 +108,7 @@ async def main():
         # サーバーファイルの存在確認
         server_path = Path(args.server)
         if not server_path.exists():
-            print(f"❌ サーバーファイルが見つかりません: {args.server}", file=sys.stderr)
+            print(f"[ERROR] サーバーファイルが見つかりません: {args.server}", file=sys.stderr)
             return 1
         
         # FastMCPのClientは直接ファイルパスを受け取る
@@ -120,23 +120,23 @@ async def main():
             if args.list:
                 # ツール一覧を表示
                 tools = await client.list_tools()
-                print("📋 利用可能なツール:")
+                print("[ツール一覧]:")
                 for tool in tools:
                     print(f"  - {tool.name}: {tool.description}")
             else:
                 # ツールを実行
-                print(f"🚀 {args.tool} を実行中...")
+                print(f"[EXEC] {args.tool} を実行中...")
                 print(f"   引数: {tool_args}")
                 try:
                     result = await client.call_tool(args.tool, tool_args)
-                    print(f"✅ 結果: {extract_text(result)}")
+                    print(f"[OK] 結果: {extract_text(result)}")
                 except Exception as e:
-                    print(f"❌ ツール実行エラー: {e}", file=sys.stderr)
+                    print(f"[ERROR] ツール実行エラー: {e}", file=sys.stderr)
                     return 1
     
     except Exception as e:
-        print(f"❌ 接続エラー: {e}", file=sys.stderr)
-        print("\n💡 ヒント:", file=sys.stderr)
+        print(f"[ERROR] 接続エラー: {e}", file=sys.stderr)
+        print("\n[ヒント]:", file=sys.stderr)
         print("  - サーバーファイルのパスが正しいか確認してください", file=sys.stderr)
         print("  - サーバーが正常に起動できるか確認してください", file=sys.stderr)
         print(f"  - 指定されたパス: {args.server}", file=sys.stderr)

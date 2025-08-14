@@ -79,6 +79,7 @@ class LLMIntegrationPrep:
 ## 出力形式
 以下のJSON形式で応答してください（JSONのみ、説明文は不要）：
 {{
+  "needs_tool": true,
   "server": "サーバー名",
   "tool": "ツール名",
   "arguments": {{
@@ -87,10 +88,17 @@ class LLMIntegrationPrep:
   "reasoning": "なぜこのツールを選んだか（簡潔に）"
 }}
 
+ツールが不要な場合：
+{{
+  "needs_tool": false,
+  "response": "直接の回答"
+}}
+
 ## 例
 ユーザー: "100と250を足して"
 応答:
 {{
+  "needs_tool": true,
   "server": "calculator",
   "tool": "add",
   "arguments": {{"a": 100, "b": 250}},

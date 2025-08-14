@@ -5,6 +5,7 @@ Step D: プロンプト機能を追加した完全版
 
 import sqlite3
 import re
+import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastmcp import FastMCP
@@ -12,8 +13,8 @@ from fastmcp import FastMCP
 # MCPサーバーを作成
 mcp = FastMCP("Database Server - Prompt Edition")
 
-# データベースのパス
-DB_PATH = 'intelligent_shop.db'
+# データベースのパス（スクリプトと同じディレクトリのDBファイルを参照）
+DB_PATH = os.path.join(os.path.dirname(__file__), 'intelligent_shop.db')
 
 def get_db_connection():
     """データベースに安全に接続する関数"""
@@ -134,7 +135,7 @@ def execute_safe_query(sql: str) -> Dict[str, Any]:
     例：「売上トップ10を出して」「今月の売上合計を計算」
     """
     if not validate_sql_safety(sql):
-        raise ValueError("❌ 安全でないSQL文です。SELECT文のみ実行可能です。")
+        raise ValueError("安全でないSQL文です。SELECT文のみ実行可能です。")
     
     conn = get_db_connection()
     
@@ -158,7 +159,7 @@ def execute_safe_query(sql: str) -> Dict[str, Any]:
         conn.close()
         raise ValueError(f"SQLエラー: {str(e)}")
 
-# 🆕 プロンプト機能の追加
+# プロンプト機能の追加
 @mcp.prompt()
 def sales_analysis_prompt(month: str, focus_category: str = None) -> str:
     """月次売上分析用のプロンプト
@@ -201,7 +202,7 @@ def inventory_alert_prompt(threshold: int = 10) -> str:
 4. 優先的に補充すべき商品を3つ提案
 5. 推奨発注数量を計算
 
-緊急度に応じて、🔴（緊急）、🟡（要注意）、🟢（余裕あり）
+緊急度に応じて、[緊急]、[要注意]、[余裕あり]
 のマークを付けて視覚的に分かりやすく表示してください。
 """
 

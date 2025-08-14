@@ -26,7 +26,7 @@ class IntegrationTester:
         
     async def setup(self):
         """テスト環境のセットアップ"""
-        print("🔧 統合テストのセットアップ中...")
+        print("[セットアップ] 統合テストのセットアップ中...")
         
         # Step 1: ツール情報の収集
         await self.collector.collect_all_tools()
@@ -37,7 +37,7 @@ class IntegrationTester:
             await client.__aenter__()
             self.clients[server_name] = client
         
-        print("✅ セットアップ完了\n")
+        print("[OK] セットアップ完了\n")
     
     async def test_llm_tool_selection(self, query: str) -> Dict:
         """LLMによるツール選択のテスト"""
@@ -73,7 +73,7 @@ class IntegrationTester:
     
     async def run_test_case(self, test_name: str, query: str):
         """個別のテストケースを実行"""
-        print(f"📝 テスト: {test_name}")
+        print(f"[テスト] {test_name}")
         print(f"   クエリ: {query}")
         
         try:
@@ -90,12 +90,12 @@ class IntegrationTester:
                 selection['arguments']
             )
             print(f"   結果: {result}")
-            print(f"   ✅ テスト成功\n")
+            print(f"   [OK] テスト成功\n")
             
             return {"status": "success", "result": result}
             
         except Exception as e:
-            print(f"   ❌ エラー: {e}\n")
+            print(f"   [ERROR] {e}\n")
             return {"status": "error", "error": str(e)}
     
     async def cleanup(self):
@@ -107,7 +107,7 @@ async def main():
     """統合テストのメイン処理"""
     # APIキーの確認
     if not os.getenv("OPENAI_API_KEY"):
-        print("❌ 環境変数 OPENAI_API_KEY を設定してください")
+        print("[ERROR] 環境変数 OPENAI_API_KEY を設定してください")
         return
     
     tester = IntegrationTester()
@@ -141,7 +141,7 @@ async def main():
         
         # テスト結果のサマリー
         print("="*50)
-        print("📊 テスト結果サマリー")
+        print("[サマリー] テスト結果")
         print("="*50)
         
         success_count = sum(1 for r in results if r["status"] == "success")
