@@ -98,8 +98,10 @@ Guidelines:
 1. Each step should be atomic and clearly defined
 2. Identify dependencies between steps
 3. Select appropriate tools for each step
-4. Estimate realistic execution times
-5. Output valid JSON format
+4. IMPORTANT: Use exact parameter names as specified in tool definitions (e.g., "a" and "b" for calculator)
+5. To use results from previous steps, use "step_X_result" as the value (e.g., {"a": "step_1_result", "b": 30})
+6. Estimate realistic execution times
+7. Output valid JSON format
 
 Output format:
 {
@@ -130,6 +132,16 @@ Output format:
             prompt += "Available tools:\n"
             for tool in tools:
                 prompt += f"- {tool['name']}: {tool.get('description', 'No description')}\n"
+                # パラメータ情報を追加
+                if 'parameters' in tool:
+                    params = tool['parameters']
+                    if 'properties' in params:
+                        prompt += "  Parameters:\n"
+                        for param_name, param_info in params['properties'].items():
+                            param_type = param_info.get('type', 'any')
+                            required = param_name in params.get('required', [])
+                            req_mark = " (required)" if required else ""
+                            prompt += f"    - {param_name}: {param_type}{req_mark}\n"
                 if 'functions' in tool:
                     prompt += f"  Functions: {', '.join(tool['functions'])}\n"
             prompt += "\n"

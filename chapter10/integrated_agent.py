@@ -160,6 +160,36 @@ class MCPAgent:
         
         return self.mcp_manager.get_available_tools()
     
+    def _resolve_step_references(
+        self,
+        params: Dict[str, Any],
+        results: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """パラメータ内のステップ参照を実際の値に解決"""
+        resolved = {}
+        
+        for key, value in params.items():
+            if isinstance(value, str) and value.startswith("step_") and value.endswith("_result"):
+                # ステップIDを抽出 (例: "step_1_result" -> "step_1")
+                step_id = value.replace("_result", "")
+                
+                # 該当するステップの結果を検索
+                for result in results:
+                    if result.get("step") == step_id and result.get("status") == "completed":
+                        # 結果のデータを数値に変換して使用
+                        try:
+                            resolved[key] = float(result.get("data", 0))
+                        except (ValueError, TypeError):
+                            resolved[key] = result.get("data", 0)
+                        break
+                else:
+                    # ステップが見つからない場合はデフォルト値
+                    resolved[key] = 0
+            else:
+                resolved[key] = value
+        
+        return resolved
+    
     async def _execute_step(
         self,
         step: TaskStep,
@@ -221,11 +251,17 @@ class MCPAgent:
                 if not tool_info:
                     raise ValueError(f"Tool not found: {step.tool}")
                 
+                # パラメータ内のステップ参照を解決
+                resolved_params = self._resolve_step_references(
+                    step.params or {},
+                    execution.results
+                )
+                
                 # ツールを実行
                 tool_call = ToolCall(
                     server=tool_info["server"],
                     tool=step.tool,
-                    params=step.params or {}
+                    params=resolved_params
                 )
                 
                 result = await self.mcp_manager.call_tool(tool_call)
