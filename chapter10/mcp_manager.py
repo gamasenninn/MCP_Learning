@@ -365,6 +365,12 @@ class MockMCPManager(MCPManager):
                 data=f"Page content from {url}: Lorem ipsum dolor sit amet..."
             )
         
+        # sum関数（1からnまでの合計）
+        elif tool_call.tool == "sum_range":
+            n = tool_call.params.get("n", 10)
+            result = sum(range(1, int(n) + 1))
+            return ToolResult(success=True, data=str(result))
+        
         # デフォルト応答
         return ToolResult(
             success=True,

@@ -113,7 +113,14 @@ async def interactive_demo():
     print("Example: 'Calculate the fibonacci sequence up to 10 terms'")
     print("="*60)
     
-    agent = MCPAgent(use_mock=True)
+    # APIキーの確認
+    import os
+    if not os.getenv("OPENAI_API_KEY"):
+        print("\n[WARNING] No API key found. Using mock mode.")
+        agent = MCPAgent(use_mock=True)
+    else:
+        print("\n[INFO] Using real mode with OpenAI API")
+        agent = MCPAgent(use_mock=False)
     
     while True:
         print("\n> ", end="")
