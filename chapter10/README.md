@@ -1,242 +1,182 @@
-# MCP Agent - LLM統合型エージェント
+# 第10章 MCPエージェントを作る
 
 ## 概要
 
-本プロジェクトは、LLM（大規模言語モデル）とMCP（Model Context Protocol）を統合した実践的なAIエージェントです。自然言語でタスクを指示すると、自動的に計画を立て、適切なツールを選択し、エラーにも対応しながらタスクを完遂します。
+第10章では、第9章で作成したLLM統合MCPクライアントをベースに、より高度な機能を持つMCPエージェントを構築しました。
 
-## 特徴
-
-- **マルチLLMサポート**: OpenAI (GPT-4/GPT-3.5)、Anthropic (Claude)、Google (Gemini) に対応
-- **インテリジェントタスクプランニング**: LLMがタスクを理解し、実行可能なステップに分解
-- **スマートエラーハンドリング**: エラーを分析し、リトライ、スキップ、フォールバックを自動判断
-- **MCPツール統合**: 様々なMCPサーバーのツールをシームレスに活用
-- **コスト最適化**: キャッシング機能でAPI呼び出しを削減
-
-## セットアップ
-
-### 1. 依存パッケージのインストール
-
-```bash
-cd C:\MCP_Learning\chapter10
-uv init
-uv sync
-```
-
-または通常のpipを使用：
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 環境設定
-
-`.env.example`を`.env`にコピーして設定：
-
-```bash
-cp .env.example .env
-```
-
-`.env`ファイルを編集：
-
-```env
-# LLMプロバイダー（openai, anthropic, google から選択）
-LLM_PROVIDER=openai
-
-# APIキー（使用するプロバイダーのものを設定）
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
-# ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
-# GOOGLE_API_KEY=AIzaxxxxxxxxxxxxx
-
-# モデル設定
-LLM_MODEL=gpt-4o-mini
-
-# コスト管理
-MAX_TOKENS_PER_REQUEST=1000
-ENABLE_CACHE=true
-CACHE_TTL_SECONDS=3600
-```
-
-### 3. APIキーの取得
-
-使用するLLMプロバイダーのAPIキーを取得：
-
-- **OpenAI**: https://platform.openai.com/api-keys
-- **Anthropic**: https://console.anthropic.com/
-- **Google**: https://makersuite.google.com/app/apikey
-
-## クイックスタート
-
-### シンプルなデモ
-
-```bash
-uv run python examples/simple_demo.py
-```
-
-### インタラクティブモード
-
-```bash
-uv run python examples/data_analysis_demo.py
-# 「4」を選択してインタラクティブモードへ
-```
-
-### Pythonコードから使用
-
-```python
-import asyncio
-from integrated_agent import MCPAgent
-
-async def main():
-    # エージェントを初期化
-    agent = MCPAgent(use_mock=True)  # テスト用モックモード
-    
-    # タスクを実行
-    result = await agent.execute(
-        "競合3社の最新ニュースを調査して比較表を作成"
-    )
-    
-    if result['success']:
-        print(f"結果: {result['result']}")
-    else:
-        print(f"エラー: {result['error']}")
-
-asyncio.run(main())
-```
-
-## アーキテクチャ
-
-```
-MCPAgent
-├── LLMClient (llm_client.py)
-│   ├── OpenAIClient
-│   ├── AnthropicClient
-│   └── GoogleClient
-├── TaskPlanner (task_planner.py)
-│   └── タスクを実行可能なステップに分解
-├── ErrorHandler (error_handler.py)
-│   └── エラーを分析して対処法を決定
-└── MCPManager (mcp_manager.py)
-    └── MCPサーバーとの通信管理
-```
+主な追加機能：
+- **タスクマネージャー**: 複雑なタスクを自動的に分解し、順次実行
+- **エラーハンドリング**: エラーの自動検出、分類、リトライ戦略の実装
+- **統合エージェント**: 両機能を統合した実用的なMCPエージェント
 
 ## ファイル構成
 
+### コアモジュール
+
+1. **task_manager.py**
+   - `SimpleTaskManager`: タスクの登録、実行、状態管理
+   - `Task`: タスク定義のデータクラス
+   - 依存関係の処理とタスクキューの管理
+
+2. **error_handler.py**
+   - `BasicErrorHandler`: エラーの分類と処理
+   - エラーパターンマッチング
+   - リトライ戦略（exponential backoff）
+   - エラー統計とレポート機能
+
+3. **mcp_agent.py**
+   - `MCPAgent`: 統合エージェントクラス
+   - タスクマネージャーとエラーハンドラーの統合
+   - 対話型インターフェース
+   - クエリのタスク分解機能
+
+### 実行スクリプト
+
+- **run_agent.py**: エージェント起動用のメインスクリプト
+- **test_agent.py**: 統合テストスクリプト
+
+### 第9章からの継承ファイル
+
+- **mcp_llm_final.py**: LLM統合の完全版
+- **mcp_llm_step1.py**: ツール収集機能
+- **mcp_llm_step2.py**: LLM統合準備
+- その他のサポートファイル
+
+## 実行方法
+
+### 基本的な起動
+
+```bash
+cd C:\MCP_Learning\chapter10
+uv run python run_agent.py
 ```
-chapter10/
-├── .env                    # 環境設定（要作成）
-├── .env.example           # 環境設定テンプレート
-├── pyproject.toml         # プロジェクト設定
-├── README.md              # このファイル
-├── llm_client.py          # LLMクライアント実装
-├── task_planner.py        # タスクプランナー
-├── error_handler.py       # エラーハンドラー
-├── mcp_manager.py         # MCPマネージャー
-├── integrated_agent.py    # 統合エージェント
-└── examples/              # 使用例
-    ├── simple_demo.py     # シンプルなデモ
-    └── data_analysis_demo.py  # 高度なデモ
+
+### テストの実行
+
+```bash
+# 統合テスト
+uv run python test_agent.py
+
+# 個別モジュールのテスト
+uv run python task_manager.py    # タスクマネージャーのテスト
+uv run python error_handler.py    # エラーハンドラーのテスト
 ```
+
+### 対話モードでの使用
+
+```bash
+uv run python mcp_agent.py
+```
+
+## 主な機能
+
+### 1. タスクマネージャー
+
+- **タスクの自動分解**: 複雑なクエリを実行可能な小さなタスクに分解
+- **依存関係の管理**: タスク間の依存関係を考慮した順次実行
+- **実行状態の追跡**: pending/running/completed/failed/skipped
+- **実行時間の計測**: 各タスクの実行時間を記録
+- **レポート機能**: 実行結果の詳細レポート生成
+
+### 2. エラーハンドリング
+
+- **エラーの自動分類**: 接続エラー、タイムアウト、権限エラーなど
+- **重要度判定**: low/medium/high/critical
+- **自動リトライ**: エラータイプに応じたリトライ戦略
+- **Exponential Backoff**: リトライ間隔の段階的増加
+- **統計情報**: エラー発生率、解決率の追跡
+
+### 3. 統合エージェント
+
+- **自然言語処理**: ユーザーのクエリを理解し適切に処理
+- **ツール実行**: MCPツールの自動選択と実行
+- **会話履歴**: コンテキストを保持した対話
+- **リアルタイム表示**: 実行状況の可視化
 
 ## 使用例
 
-### 1. 計算タスク
+### 簡単なクエリ
 
-```python
-result = await agent.execute(
-    "15と25を足して、その結果を2倍にして"
-)
+```
+あなた> 電卓で123+456を計算して
+エージェント> 計算結果は579です。
 ```
 
-### 2. データ分析
+### 複雑なタスク
 
-```python
-result = await agent.execute("""
-    売上データを分析：
-    1. Q4の売上を集計
-    2. 前年同期比を計算
-    3. トップ5商品を特定
-    4. レポート作成
-""")
+```
+あなた> データを取得して、処理して、結果を保存して
+エージェント> タスク実行が完了しました。
+- 実行タスク数: 3
+- 成功: 3
+- 実行時間: 5.2秒
+
+実行結果:
+[OK] データ取得: データを正常に取得しました
+[OK] データ処理: 処理が完了しました
+[OK] 結果保存: 保存に成功しました
 ```
 
-### 3. Web調査
+### コマンド
 
-```python
-result = await agent.execute(
-    "AI業界の最新トレンドを調査してまとめて"
-)
+```
+あなた> stats
+[統計情報]
+セッション開始: 2025-01-16 10:00:00
+ツール呼び出し: 5回
+エラー発生: 2回
+タスク完了: 10個
+エラー解決率: 50.0%
+
+あなた> report
+タスク実行レポート
+====================
+[ステータスサマリ]
+  pending: 0
+  completed: 10
+  failed: 2
+...
+
+あなた> reset
+タスクマネージャーと会話履歴をリセットしました。
 ```
 
-## カスタマイズ
+## 技術的な特徴
 
-### 新しいMCPサーバーの追加
-
-`~/.config/mcp/servers.json`に設定を追加：
-
-```json
-{
-  "servers": {
-    "my_server": {
-      "command": "python",
-      "args": ["path/to/my_server.py"]
-    }
-  }
-}
-```
-
-### エラーハンドリングのカスタマイズ
-
-```python
-from error_handler import LLMErrorHandler, ErrorResolution
-
-class CustomErrorHandler(LLMErrorHandler):
-    def _create_default_resolution(self, context):
-        # カスタムエラー処理ロジック
-        return ErrorResolution(
-            strategy="retry",
-            description="Custom retry logic",
-            max_retries=5
-        )
-```
+1. **非同期処理**: asyncioを使用した効率的な並行処理
+2. **エラー耐性**: 一部のタスクが失敗しても継続可能
+3. **拡張性**: 新しいタスクタイプやエラーパターンの追加が容易
+4. **デバッグ機能**: verboseモードによる詳細なログ出力
 
 ## トラブルシューティング
 
-### LLM APIエラー
+### よくある問題
 
-```
-Error: OpenAI API error: Invalid API key
-```
-→ `.env`ファイルのAPIキーを確認
+1. **モジュールが見つからない**
+   ```bash
+   uv pip install fastmcp openai python-dotenv
+   ```
 
-### MCPサーバー接続エラー
+2. **OpenAI APIキーエラー**
+   - `.env`ファイルにAPIキーを設定
+   ```
+   OPENAI_API_KEY=your-api-key
+   ```
 
-```
-Error: Failed to connect to calculator
-```
-→ MCPサーバーが正しく設定されているか確認
+3. **MCPサーバー接続エラー**
+   - `mcp_servers.json`の設定を確認
+   - サーバーのパスが正しいか確認
 
-### メモリ不足
+## 今後の拡張可能性
 
-キャッシュを無効化：
-```env
-ENABLE_CACHE=false
-```
+1. **並列実行**: 依存関係のないタスクの並列処理
+2. **学習機能**: エラーパターンの自動学習
+3. **UI改善**: Webインターフェースの追加
+4. **プラグイン機構**: カスタムタスクハンドラーの追加
+5. **永続化**: タスク履歴のデータベース保存
 
-## パフォーマンス最適化
+## まとめ
 
-1. **キャッシング**: 同じプロンプトの結果を再利用
-2. **モデル選択**: 軽量モデル（gpt-3.5-turbo等）を使用
-3. **トークン制限**: MAX_TOKENS_PER_REQUESTを調整
+第10章では、実用的なMCPエージェントの構築に成功しました。タスクマネージャーとエラーハンドラーの統合により、複雑なタスクの自動実行と障害からの自動復旧が可能になりました。
 
-## セキュリティ
-
-- APIキーは必ず`.env`ファイルで管理
-- `.env`ファイルは`.gitignore`に追加
-- 本番環境では環境変数を使用
-
-## ライセンス
-
-MIT License
-
-## サポート
-
-質問や問題がある場合は、Issueを作成してください。
+これは「Claude Code」のようなCLIエージェントの基本的な実装であり、さらなる機能追加により、より高度なエージェントシステムへと発展させることができます。
