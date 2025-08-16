@@ -18,8 +18,8 @@ if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
 
 # 第9章のコンポーネントをインポート
-from mcp_llm_step1 import ToolCollector
-from mcp_llm_step2 import LLMIntegrationPrep
+# MCPConnectionManagerを使用
+from mcp_connection_manager import MCPConnectionManager
 
 load_dotenv()
 
@@ -50,49 +50,41 @@ class UniversalTask:
 class UniversalTaskPlanner:
     """汎用タスクプランナー"""
     
-    def __init__(self, config_file: str = "mcp_servers.json"):
-        self.collector = ToolCollector(config_file)
-        self.prep = LLMIntegrationPrep()
+    def __init__(self, connection_manager: Optional[MCPConnectionManager] = None):
+        """
+        Args:
+            connection_manager: MCP接続マネージャー（提供されない場合は新規作成）
+        """
+        self.connection_manager = connection_manager or MCPConnectionManager()
         self.llm = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.tools_info = {}
         
     async def initialize(self):
-        """ツール情報を収集"""
-        print("[初期化] ツール情報を収集中...")
-        await self.collector.collect_all_tools()
+        """接続マネージャーを初期化してツール情報を取得"""
+        # 接続マネージャーが初期化されていなければ初期化
+        if not self.connection_manager._initialized:
+            await self.connection_manager.initialize()
         
-        # ツール名とサーバーのマッピングを作成
-        for server_name, tools in self.collector.tools_schema.items():
-            for tool in tools:
-                self.tools_info[tool["name"]] = {
-                    "server": server_name,
-                    "schema": tool
-                }
-        
-        print(f"  {len(self.tools_info)}個のツールを発見")
-        for tool_name, info in self.tools_info.items():
-            print(f"    - {tool_name} ({info['server']})")
+        # 接続マネージャーからツール情報を取得
+        self.tools_info = self.connection_manager.tools_info
     
     async def plan_task(self, query: str) -> List[UniversalTask]:
         """クエリをタスクに分解"""
         
-        # ツール情報を整形
-        tools_desc = self.prep.prepare_tools_for_llm(self.collector.tools_schema)
-        
         # ツールのパラメータ情報を詳細に記述
         tools_detail = []
-        for server_name, tools in self.collector.tools_schema.items():
-            for tool in tools:
-                params = tool.get("inputSchema", {}).get("properties", {})
-                param_desc = []
-                for param_name, param_info in params.items():
-                    param_type = param_info.get("type", "any")
-                    param_desc.append(f"{param_name}: {param_type}")
-                
-                tools_detail.append(
-                    f"- {tool['name']}: {tool.get('description', 'No description')}\n"
-                    f"  パラメータ: {', '.join(param_desc) if param_desc else 'なし'}"
-                )
+        for tool_name, tool_info in self.tools_info.items():
+            schema = tool_info["schema"]
+            params = schema.get("inputSchema", {}).get("properties", {})
+            param_desc = []
+            for param_name, param_info in params.items():
+                param_type = param_info.get("type", "any")
+                param_desc.append(f"{param_name}: {param_type}")
+            
+            tools_detail.append(
+                f"- {tool_name}: {schema.get('description', 'No description')}\n"
+                f"  パラメータ: {', '.join(param_desc) if param_desc else 'なし'}"
+            )
         
         tools_detail_str = "\n".join(tools_detail)
         

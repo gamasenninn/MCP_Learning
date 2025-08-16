@@ -35,13 +35,13 @@ class FailureContext:
 class AdaptiveTaskPlanner(UniversalTaskPlanner):
     """エラーから学習して適応するタスクプランナー"""
     
-    def __init__(self, config_file: str = "mcp_servers.json"):
-        super().__init__(config_file)
+    def __init__(self, connection_manager=None):
+        super().__init__(connection_manager)
         self.failure_history: List[FailureContext] = []
         self.adaptation_cache = {}
         self.learning_enabled = True
         
-        # OpenAI APIクライアントを再初期化（既に親クラスで初期化済み）
+        # OpenAI APIクライアント
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     async def replan_on_error(

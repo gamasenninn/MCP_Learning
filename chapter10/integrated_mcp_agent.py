@@ -22,6 +22,7 @@ if sys.platform == "win32":
 load_dotenv()
 
 # コンポーネントのインポート
+from mcp_connection_manager import MCPConnectionManager
 from universal_task_planner import UniversalTaskPlanner, UniversalTask
 from adaptive_task_planner import AdaptiveTaskPlanner
 from intelligent_error_handler import IntelligentErrorHandler
@@ -74,11 +75,14 @@ class IntegratedMCPAgent:
         self.enable_learning = enable_learning
         self.verbose = verbose
         
-        # コンポーネントの初期化
-        self.planner = UniversalTaskPlanner(config_file)
-        self.adaptive_planner = AdaptiveTaskPlanner() if use_ai else None
+        # 接続マネージャーを作成
+        self.connection_manager = MCPConnectionManager(config_file, verbose=verbose)
+        
+        # コンポーネントの初期化（同じ接続マネージャーを共有）
+        self.planner = UniversalTaskPlanner(self.connection_manager)
+        self.adaptive_planner = AdaptiveTaskPlanner(self.connection_manager) if use_ai else None
         self.executor = ErrorAwareExecutor(
-            config_file=config_file,
+            connection_manager=self.connection_manager,
             use_ai=use_ai,
             max_retries=max_retries,
             verbose=verbose
@@ -97,21 +101,21 @@ class IntegratedMCPAgent:
         self.max_history_length = 20    # 保持する会話履歴の最大数
         
     async def initialize(self):
-        """エージェントの初期化"""
+        """エージェントの統合初期化"""
         if self.verbose:
             print("\n" + "=" * 70)
             print(" 統合MCPエージェント - 初期化")
             print("=" * 70)
         
-        # プランナーの初期化
+        # 接続マネージャーを一度だけ初期化
+        await self.connection_manager.initialize()
+        
+        # 各コンポーネントは既に接続マネージャーを持っているので、
+        # ツール情報を取得するだけ
         await self.planner.initialize()
         
-        # 適応型プランナーの初期化
         if self.adaptive_planner:
             await self.adaptive_planner.initialize()
-        
-        # エグゼキューターの初期化（サーバー接続）
-        await self.executor.connect_all_servers()
         
         if self.verbose:
             print(f"\n[初期化完了]")
@@ -589,8 +593,8 @@ class IntegratedMCPAgent:
         if self.verbose:
             print("\n[クリーンアップ] リソースを解放中...")
         
-        # エグゼキューターのクリーンアップ
-        await self.executor.cleanup()
+        # 接続マネージャーのクリーンアップ（全接続を閉じる）
+        await self.connection_manager.cleanup()
         
         # 最終統計を表示
         if self.verbose:

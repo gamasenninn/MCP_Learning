@@ -42,21 +42,26 @@ class ErrorHandlingTester:
             print("  [警告] OpenAI APIキーが設定されていません")
             self.use_ai = False
         
-        # プランナーとエグゼキューターの初期化
+        # MCPConnectionManagerを作成して共有
+        from mcp_connection_manager import MCPConnectionManager
+        connection_manager = MCPConnectionManager(verbose=False)
+        await connection_manager.initialize()
+        
+        # プランナーとエグゼキューターの初期化（同じ接続マネージャーを使用）
         if self.use_ai and api_key:
-            self.planner = AdaptiveTaskPlanner(api_key=api_key)
+            self.planner = AdaptiveTaskPlanner(connection_manager)
         else:
             from universal_task_planner import UniversalTaskPlanner
-            self.planner = UniversalTaskPlanner()
+            self.planner = UniversalTaskPlanner(connection_manager)
         
         self.executor = ErrorAwareExecutor(
+            connection_manager=connection_manager,
             use_ai=self.use_ai,
             max_retries=3,
             verbose=True
         )
         
         await self.planner.initialize()
-        await self.executor.connect_all_servers()
         
         print("  [完了] セットアップ完了\n")
     

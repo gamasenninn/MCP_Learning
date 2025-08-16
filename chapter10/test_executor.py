@@ -13,6 +13,7 @@ if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
 
 from my_test_cases import EXECUTOR_TESTS
+from mcp_connection_manager import MCPConnectionManager
 from universal_task_planner import UniversalTaskPlanner
 from universal_task_executor import UniversalTaskExecutor
 
@@ -21,8 +22,12 @@ async def test_executor():
     print("タスク実行エンジン単体テスト")
     print("=" * 60)
     
-    # プランナーとエグゼキューターの初期化
-    planner = UniversalTaskPlanner()
+    # 接続マネージャーを作成して共有
+    connection_manager = MCPConnectionManager(verbose=False)
+    await connection_manager.initialize()
+    
+    # プランナーとエグゼキューターの初期化（同じ接続マネージャーを使用）
+    planner = UniversalTaskPlanner(connection_manager)
     executor = UniversalTaskExecutor()
     
     print("\n[初期化中...]")
@@ -128,7 +133,11 @@ async def test_executor_single(query: str):
     print("エグゼキューター詳細テスト")
     print("=" * 60)
     
-    planner = UniversalTaskPlanner()
+    # 接続マネージャーを作成して共有
+    connection_manager = MCPConnectionManager(verbose=False)
+    await connection_manager.initialize()
+    
+    planner = UniversalTaskPlanner(connection_manager)
     executor = UniversalTaskExecutor()
     
     await planner.initialize()

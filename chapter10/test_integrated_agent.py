@@ -29,17 +29,18 @@ async def test_basic_calculation():
     # 単純な計算
     result = await agent.process_request("100と200を足して")
     assert result["success"], f"計算失敗: {result['error']}"
-    assert result["result"] == 300, f"計算結果が正しくない: {result['result']}"
-    print(f"✓ 100 + 200 = {result['result']}")
+    # 結果が300または300.0であることを確認
+    assert result["result"] in [300, 300.0], f"計算結果が正しくない: {result['result']}"
+    print(f"[OK] 100 + 200 = {result['result']}")
     
     # 複数ステップの計算
     result = await agent.process_request("100と200を足して、その結果を2で割って")
     assert result["success"], f"計算失敗: {result['error']}"
-    assert result["result"] == 150, f"計算結果が正しくない: {result['result']}"
-    print(f"✓ (100 + 200) / 2 = {result['result']}")
+    assert result["result"] in [150, 150.0], f"計算結果が正しくない: {result['result']}"
+    print(f"[OK] (100 + 200) / 2 = {result['result']}")
     
     await agent.cleanup()
-    print("✓ 基本計算テスト完了")
+    print("[OK] 基本計算テスト完了")
 
 async def test_error_recovery():
     """エラーリカバリーテスト"""
@@ -53,12 +54,12 @@ async def test_error_recovery():
     # ※実際にはプランナーが適切に処理するため、エラーにならない可能性がある
     result = await agent.process_request("100と50を足して")
     if result["success"]:
-        print(f"✓ 正常実行: {result['result']}")
+        print(f"[OK] 正常実行: {result['result']}")
     else:
-        print(f"✓ エラー処理: {result['error']}")
+        print(f"[OK] エラー処理: {result['error']}")
     
     await agent.cleanup()
-    print("✓ エラーリカバリーテスト完了")
+    print("[OK] エラーリカバリーテスト完了")
 
 async def test_learning():
     """学習機能テスト"""
@@ -74,7 +75,7 @@ async def test_learning():
     result1 = await agent.process_request(query)
     time1 = (datetime.now() - start1).total_seconds()
     assert result1["success"], f"1回目の実行失敗: {result1['error']}"
-    print(f"✓ 1回目実行: {result1['result']} ({time1:.2f}秒)")
+    print(f"[OK] 1回目実行: {result1['result']} ({time1:.2f}秒)")
     
     # 2回目の実行（学習済みパターンを使用）
     start2 = datetime.now()
@@ -82,14 +83,14 @@ async def test_learning():
     time2 = (datetime.now() - start2).total_seconds()
     assert result2["success"], f"2回目の実行失敗: {result2['error']}"
     assert result2["learning_applied"], "学習パターンが適用されていない"
-    print(f"✓ 2回目実行（学習済み）: {result2['result']} ({time2:.2f}秒)")
+    print(f"[OK] 2回目実行（学習済み）: {result2['result']} ({time2:.2f}秒)")
     
     # 学習による高速化を確認（厳密ではないが、傾向として）
     if time2 < time1:
-        print(f"✓ 学習による高速化: {time1:.2f}秒 → {time2:.2f}秒")
+        print(f"[OK] 学習による高速化: {time1:.2f}秒 → {time2:.2f}秒")
     
     await agent.cleanup()
-    print("✓ 学習機能テスト完了")
+    print("[OK] 学習機能テスト完了")
 
 async def test_session_management():
     """セッション管理テスト"""
@@ -108,7 +109,7 @@ async def test_session_management():
     
     for query in queries:
         result = await agent.process_request(query)
-        print(f"✓ {query}: {result['result']}")
+        print(f"[OK] {query}: {result['result']}")
     
     # セッション統計を確認
     stats = agent.session.get_stats()
@@ -123,7 +124,7 @@ async def test_session_management():
     # セッションの保存と読み込み
     test_file = "test_session.json"
     agent.save_session(test_file)
-    print(f"✓ セッションを {test_file} に保存")
+    print(f"[OK] セッションを {test_file} に保存")
     
     # 新しいエージェントで読み込み
     agent2 = IntegratedMCPAgent(use_ai=True, enable_learning=True, verbose=False)
@@ -131,7 +132,7 @@ async def test_session_management():
     success = agent2.load_session(test_file)
     assert success, "セッションの読み込みに失敗"
     assert len(agent2.success_patterns) > 0, "学習パターンが復元されていない"
-    print(f"✓ セッションを読み込み（{len(agent2.success_patterns)}個のパターン）")
+    print(f"[OK] セッションを読み込み（{len(agent2.success_patterns)}個のパターン）")
     
     # クリーンアップ
     await agent.cleanup()
@@ -141,7 +142,7 @@ async def test_session_management():
     if os.path.exists(test_file):
         os.remove(test_file)
     
-    print("✓ セッション管理テスト完了")
+    print("[OK] セッション管理テスト完了")
 
 async def test_complex_workflow():
     """複雑なワークフローテスト"""
@@ -158,13 +159,13 @@ async def test_complex_workflow():
     if result["success"]:
         expected = ((100 + 200) * 50) / 10  # 1500
         assert result["result"] == expected, f"計算結果が正しくない: {result['result']} != {expected}"
-        print(f"✓ 複雑な計算: {result['result']}")
+        print(f"[OK] 複雑な計算: {result['result']}")
         print(f"  実行タスク数: {result['tasks_executed']}")
     else:
-        print(f"✗ エラー: {result['error']}")
+        print(f"[ERROR] エラー: {result['error']}")
     
     await agent.cleanup()
-    print("✓ 複雑なワークフローテスト完了")
+    print("[OK] 複雑なワークフローテスト完了")
 
 async def run_all_tests():
     """すべてのテストを実行"""
@@ -194,7 +195,7 @@ async def run_all_tests():
             await test_func()
             passed += 1
         except Exception as e:
-            print(f"\n✗ {name}テスト失敗: {e}")
+            print(f"\n[ERROR] {name}テスト失敗: {e}")
             failed += 1
     
     # 結果サマリー

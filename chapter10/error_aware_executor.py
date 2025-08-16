@@ -21,7 +21,7 @@ if sys.platform == "win32":
 # .envファイルから環境変数を読み込む
 load_dotenv()
 
-from universal_task_executor import UniversalTaskExecutor
+from mcp_connection_manager import MCPConnectionManager
 from universal_task_planner import UniversalTask
 from intelligent_error_handler import IntelligentErrorHandler
 
@@ -36,17 +36,17 @@ class ExecutionAttempt:
     fix_applied: Optional[Dict[str, Any]] = None
     timestamp: datetime = field(default_factory=datetime.now)
 
-class ErrorAwareExecutor(UniversalTaskExecutor):
+class ErrorAwareExecutor:
     """エラー対応機能を持つタスク実行エンジン"""
     
     def __init__(
         self,
-        config_file: str = "mcp_servers.json",
+        connection_manager: Optional[MCPConnectionManager] = None,
         use_ai: bool = True,
         max_retries: int = 3,
         verbose: bool = True
     ):
-        super().__init__(config_file)
+        self.connection_manager = connection_manager or MCPConnectionManager()
         self.use_ai = use_ai
         self.max_retries = max_retries
         self.verbose = verbose
@@ -65,6 +65,45 @@ class ErrorAwareExecutor(UniversalTaskExecutor):
         else:
             from error_handler import BasicErrorHandler
             self.error_handler = BasicErrorHandler(verbose=verbose)
+    
+    async def connect_all_servers(self):
+        """接続マネージャーを初期化"""
+        if not self.connection_manager._initialized:
+            await self.connection_manager.initialize()
+    
+    async def execute_task(self, task: UniversalTask) -> Any:
+        """単一タスクを実行"""
+        if self.verbose:
+            print(f"\n[実行] {task.name}")
+            print(f"  ツール: {task.tool} (サーバー: {task.server})")
+            print(f"  パラメータ: {task.params}")
+        
+        try:
+            result = await self.connection_manager.execute_tool(task.tool, task.params)
+            
+            # 結果を整形
+            if hasattr(result, 'content'):
+                if hasattr(result.content[0], 'text'):
+                    task.result = result.content[0].text
+                else:
+                    task.result = str(result)
+            else:
+                task.result = result
+            
+            if self.verbose:
+                print(f"  結果: {task.result}")
+            
+            return task.result
+            
+        except Exception as e:
+            task.error = str(e)
+            if self.verbose:
+                print(f"  エラー: {e}")
+            raise
+    
+    async def cleanup(self):
+        """接続をクリーンアップ"""
+        await self.connection_manager.cleanup()
     
     async def execute_task_with_recovery(self, task: UniversalTask) -> Any:
         """エラーリカバリー機能付きでタスクを実行"""
@@ -146,7 +185,7 @@ class ErrorAwareExecutor(UniversalTaskExecutor):
             "tool": task.tool,
             "params": task.params,
             "server": task.server,
-            "available_tools": list(self.tools_map.keys())
+            "available_tools": list(self.connection_manager.tools_map.keys())
         }
         
         # AI分析を実行
@@ -171,11 +210,11 @@ class ErrorAwareExecutor(UniversalTaskExecutor):
         elif action == "use_alternative":
             # 代替ツールを使用
             alternative = strategy.get("alternative")
-            if alternative and alternative in self.tools_map:
+            if alternative and alternative in self.connection_manager.tools_map:
                 if self.verbose:
                     print(f"  [代替] ツールを変更: {task.tool} → {alternative}")
                 task.tool = alternative
-                task.server = self.tools_map[alternative]
+                task.server = self.connection_manager.tools_map[alternative]
                 
                 # パラメータのマッピングが必要な場合
                 # 例: calculate_tax(amount, rate) → add(a, b) or multiply(a, b)
