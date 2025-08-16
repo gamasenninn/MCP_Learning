@@ -21,7 +21,7 @@ load_dotenv()
 from integrated_mcp_agent import IntegratedMCPAgent
 
 async def test_conversation_memory():
-    """会話記憶機能のテスト"""
+    """シンプル化された会話履歴機能のテスト"""
     
     print("\n" + "=" * 70)
     print(" 会話記憶機能テスト")
@@ -93,10 +93,9 @@ async def test_conversation_memory():
     result = await new_agent.process_request("君の名前は？", interpret_result=False)
     print(f"  名前の記憶: {result['result']}")
     
-    # 前の計算結果を確認
-    if new_agent.conversation_memory.get("recent_results"):
-        last_result = new_agent.conversation_memory["recent_results"][-1]
-        print(f"  計算結果の記憶: {last_result['result']}")
+    # 前の計算結果を確認（会話履歴から）
+    result = await new_agent.process_request("さっきの計算結果は？", interpret_result=False)
+    print(f"  計算結果の記憶: {result['result']}")
     
     await new_agent.cleanup()
     
@@ -147,25 +146,19 @@ async def test_context_aware_conversation():
         else:
             print(f"エラー: {result['error']}")
     
-    # 会話記憶の状態を表示
-    print("\n\n[会話記憶の状態]")
+    # 会話履歴の状態を表示
+    print("\n\n[会話履歴の状態]")
     print("-" * 40)
     
-    memory = agent.conversation_memory
+    history = agent.conversation_history
     
-    if memory.get("user_name"):
-        print(f"  ユーザー名: {memory['user_name']}")
-    
-    if memory.get("agent_name"):
-        print(f"  エージェント名: {memory['agent_name']}")
-    
-    if memory.get("recent_results"):
-        print(f"  記憶している結果: {len(memory['recent_results'])}件")
-        for i, res in enumerate(memory['recent_results'][-3:], 1):
-            print(f"    {i}. {res['query'][:30]}... → {res['result']}")
-    
-    if memory.get("context"):
-        print(f"  会話履歴: {len(memory['context'])}件")
+    if history:
+        print(f"  会話履歴: {len(history)}件")
+        print("\n  最近の会話:")
+        for entry in history[-5:]:
+            role = "ユーザー" if entry["role"] == "user" else "エージェント"
+            msg = entry["message"][:50] + "..." if len(entry["message"]) > 50 else entry["message"]
+            print(f"    [{role}] {msg}")
     
     await agent.cleanup()
     
