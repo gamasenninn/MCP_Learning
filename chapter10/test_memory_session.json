@@ -1,0 +1,126 @@
+{
+  "timestamp": "2025-08-16T16:25:21.606475",
+  "stats": {
+    "duration_seconds": 18.412724,
+    "total_requests": 4,
+    "successful_tasks": 1,
+    "failed_tasks": 0,
+    "recovered_tasks": 0,
+    "success_rate": 100.0,
+    "learning_entries": 1
+  },
+  "command_history": [
+    "君の名前はガーコです",
+    "君の名前を言ってみて",
+    "100と200を足して",
+    "さっきの計算結果は何だった？"
+  ],
+  "success_patterns": {
+    "100と200を足して": [
+      {
+        "id": "task_1",
+        "name": "Simple task",
+        "tool": "add",
+        "server": "calculator",
+        "params": {
+          "a": 100,
+          "b": 200
+        },
+        "dependencies": [],
+        "result": "300.0",
+        "error": null
+      }
+    ]
+  },
+  "execution_results": [
+    {
+      "query": "君の名前はガーコです",
+      "timestamp": "2025-08-16T16:25:11.089145",
+      "success": true,
+      "result": "はい、私はガーコです！何かお手伝いできることがあれば教えてくださいね。",
+      "error": null,
+      "tasks_executed": 0,
+      "recovery_attempted": false,
+      "learning_applied": false
+    },
+    {
+      "query": "君の名前を言ってみて",
+      "timestamp": "2025-08-16T16:25:13.852895",
+      "success": true,
+      "result": "私の名前はガーコです！何かお手伝いできることがあれば教えてくださいね。",
+      "error": null,
+      "tasks_executed": 0,
+      "recovery_attempted": false,
+      "learning_applied": false
+    },
+    {
+      "query": "100と200を足して",
+      "timestamp": "2025-08-16T16:25:16.327050",
+      "success": true,
+      "result": 300.0,
+      "error": null,
+      "tasks_executed": 1,
+      "recovery_attempted": false,
+      "learning_applied": false,
+      "interpretation": "100と200を足すと、合計は300になります。計算は簡単で、100に200を加えるだけです。もし他に計算したいことがあれば教えてくださいね。",
+      "execution_time": 2.528622
+    },
+    {
+      "query": "さっきの計算結果は何だった？",
+      "timestamp": "2025-08-16T16:25:18.855672",
+      "success": true,
+      "result": "さっきの計算結果は300でしたよ。他に何か計算したいことがありますか？",
+      "error": null,
+      "tasks_executed": 0,
+      "recovery_attempted": false,
+      "learning_applied": false
+    }
+  ],
+  "conversation_history": [
+    {
+      "timestamp": "2025-08-16T16:25:11.089145",
+      "role": "user",
+      "message": "君の名前はガーコです"
+    },
+    {
+      "timestamp": "2025-08-16T16:25:13.851438",
+      "role": "assistant",
+      "message": "はい、私はガーコです！何かお手伝いできることがあれば教えてくださいね。"
+    },
+    {
+      "timestamp": "2025-08-16T16:25:13.851438",
+      "role": "user",
+      "message": "君の名前を言ってみて"
+    },
+    {
+      "timestamp": "2025-08-16T16:25:16.326050",
+      "role": "assistant",
+      "message": "私の名前はガーコです！何かお手伝いできることがあれば教えてくださいね。"
+    },
+    {
+      "timestamp": "2025-08-16T16:25:16.327050",
+      "role": "user",
+      "message": "100と200を足して"
+    },
+    {
+      "timestamp": "2025-08-16T16:25:18.854674",
+      "role": "assistant",
+      "message": "100と200を足すと、合計は300になります。計算は簡単で、100に200を加えるだけです。もし他に計算したいことがあれば教えてくださいね。"
+    },
+    {
+      "timestamp": "2025-08-16T16:25:18.855672",
+      "role": "assistant",
+      "message": "300.0"
+    },
+    {
+      "timestamp": "2025-08-16T16:25:18.855672",
+      "role": "user",
+      "message": "さっきの計算結果は何だった？"
+    },
+    {
+      "timestamp": "2025-08-16T16:25:21.606475",
+      "role": "assistant",
+      "message": "さっきの計算結果は300でしたよ。他に何か計算したいことがありますか？"
+    }
+  ]
+}

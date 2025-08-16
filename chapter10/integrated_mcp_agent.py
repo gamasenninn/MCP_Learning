@@ -92,16 +92,9 @@ class IntegratedMCPAgent:
         # 学習キャッシュ
         self.success_patterns: Dict[str, List[UniversalTask]] = {}
         
-        # 会話コンテキスト管理
-        self.conversation_memory = {
-            "user_name": None,           # ユーザーの名前
-            "agent_name": None,          # エージェントの名前
-            "recent_results": [],        # 最近の計算結果や実行結果
-            "context": [],               # 会話の文脈（最新10件）
-            "important_facts": {},       # 重要な事実（名前、場所など）
-            "current_location": None     # 現在の場所
-        }
-        self.max_context_length = 10    # 保持する会話履歴の最大数
+        # シンプルな会話履歴管理
+        self.conversation_history = []  # 生の会話履歴
+        self.max_history_length = 20    # 保持する会話履歴の最大数
         
     async def initialize(self):
         """エージェントの初期化"""
@@ -146,11 +139,8 @@ class IntegratedMCPAgent:
         self.session.total_requests += 1
         self.command_history.append(query)
         
-        # 会話コンテキストを更新
-        self._update_conversation_context(query)
-        
-        # 重要な情報を抽出（名前の設定など）
-        await self._extract_important_info(query)
+        # 会話履歴に追加
+        self._add_to_history("user", query)
         
         if self.verbose:
             print(f"\n{'='*70}")
@@ -193,8 +183,11 @@ class IntegratedMCPAgent:
                         # AIで適切な応答を生成
                         no_tool_response = await self._generate_no_tool_response(query)
                         result["result"] = no_tool_response
+                        # 応答を会話履歴に追加
+                        self._add_to_history("assistant", no_tool_response)
                     else:
                         result["result"] = "タスク分解不要またはツール不要です"
+                        self._add_to_history("assistant", result["result"])
                     result["success"] = True
                     
                     if self.verbose:
@@ -233,6 +226,8 @@ class IntegratedMCPAgent:
                 if interpret_result and self.use_ai:
                     interpretation = await self._interpret_result(query, execution_result, tasks)
                     result["interpretation"] = interpretation
+                    # 解釈結果を会話履歴に追加
+                    self._add_to_history("assistant", interpretation)
                     if self.verbose:
                         print(f"\n[結果の解釈]")
                         print("-" * 40)
@@ -290,9 +285,9 @@ class IntegratedMCPAgent:
             if execution_result["stats"].get("recovered", 0) > 0:
                 self.session.recovered_tasks += execution_result["stats"]["recovered"]
             
-            # 結果を記憶に追加
+            # 結果を会話履歴に追加
             if result["success"] and result.get("result"):
-                self._update_memory_with_result(query, result["result"])
+                self._add_to_history("assistant", str(result["result"]))
             
         except Exception as e:
             result["error"] = str(e)
@@ -439,69 +434,21 @@ class IntegratedMCPAgent:
         print("  - help   : このヘルプ")
         print("  - exit   : 終了")
     
-    def _update_conversation_context(self, query: str):
-        """会話コンテキストを更新"""
-        # 会話履歴に追加
-        self.conversation_memory["context"].append({
+    def _add_to_history(self, role: str, message: str):
+        """会話履歴に追加"""
+        self.conversation_history.append({
             "timestamp": datetime.now().isoformat(),
-            "speaker": "user",
-            "message": query
+            "role": role,  # "user" or "assistant"
+            "message": message
         })
         
         # 最大長を超えたら古いものを削除
-        if len(self.conversation_memory["context"]) > self.max_context_length:
-            self.conversation_memory["context"] = self.conversation_memory["context"][-self.max_context_length:]
+        if len(self.conversation_history) > self.max_history_length:
+            self.conversation_history = self.conversation_history[-self.max_history_length:]
     
-    async def _extract_important_info(self, query: str):
-        """重要な情報を抽出して記憶"""
-        import re
-        query_lower = query.lower()
-        
-        # 名前の設定を検出
-        if "君の名前は" in query or "あなたの名前は" in query or "お前の名前は" in query:
-            # 名前を抽出（より柔軟なパターン）
-            name_match = re.search(r'(?:君の名前は|あなたの名前は|お前の名前は)(\S+?)(?:だ|です|よ|$)', query)
-            if name_match:
-                self.conversation_memory["agent_name"] = name_match.group(1)
-                self.conversation_memory["important_facts"]["agent_name"] = name_match.group(1)
-                if self.verbose:
-                    print(f"[記憶] エージェント名を設定: {self.conversation_memory['agent_name']}")
-        
-        # 場所の言及を検出
-        if "場所" in query or "ここ" in query:
-            if "天気" in query:
-                # 現在地を推測（実際にはIPアドレスなどから取得すべき）
-                self.conversation_memory["current_location"] = "現在地"
-        
-        # ユーザー名の言及を検出
-        if "私の名前は" in query or "俺の名前は" in query or "僕の名前は" in query:
-            # より柔軟なパターンマッチング
-            name_match = re.search(r'(?:私の名前は|俺の名前は|僕の名前は)(\S+?)(?:だ|です|よ|$)', query)
-            if name_match:
-                self.conversation_memory["user_name"] = name_match.group(1)
-                self.conversation_memory["important_facts"]["user_name"] = name_match.group(1)
-                if self.verbose:
-                    print(f"[記憶] ユーザー名を設定: {self.conversation_memory['user_name']}")
+    # 削除: _extract_important_info() - LLMが会話履歴から自然に理解
     
-    def _update_memory_with_result(self, query: str, result: Any):
-        """実行結果を記憶に追加"""
-        # 最近の結果に追加
-        self.conversation_memory["recent_results"].append({
-            "query": query,
-            "result": result,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        # 最大10件まで保持
-        if len(self.conversation_memory["recent_results"]) > 10:
-            self.conversation_memory["recent_results"] = self.conversation_memory["recent_results"][-10:]
-        
-        # 会話コンテキストに結果を追加
-        self.conversation_memory["context"].append({
-            "timestamp": datetime.now().isoformat(),
-            "speaker": "agent",
-            "message": str(result)
-        })
+    # 削除: _update_memory_with_result() - _add_to_history()に統合
     
     async def _generate_no_tool_response(self, query: str) -> str:
         """
@@ -511,45 +458,30 @@ class IntegratedMCPAgent:
         
         client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # 会話コンテキストを整形
+        # 会話履歴を整形（最近10件）
         context_str = ""
-        if self.conversation_memory["context"]:
-            recent_context = self.conversation_memory["context"][-5:]  # 最近5件
-            for entry in recent_context:
-                speaker = "ユーザー" if entry["speaker"] == "user" else "エージェント"
-                context_str += f"{speaker}: {entry['message']}\n"
-        
-        # 重要な情報を整形
-        memory_info = ""
-        if self.conversation_memory["agent_name"]:
-            memory_info += f"- あなたの名前は「{self.conversation_memory['agent_name']}」です\n"
-        if self.conversation_memory["user_name"]:
-            memory_info += f"- ユーザーの名前は「{self.conversation_memory['user_name']}」です\n"
-        if self.conversation_memory["recent_results"]:
-            last_result = self.conversation_memory["recent_results"][-1]
-            memory_info += f"- 直前の計算結果: {last_result['result']}\n"
+        if self.conversation_history:
+            recent_history = self.conversation_history[-10:]
+            for entry in recent_history:
+                role = "ユーザー" if entry["role"] == "user" else "アシスタント"
+                context_str += f"{role}: {entry['message']}\n"
         
         prompt = f"""
-あなたは親切なアシスタントです。ユーザーからの挨拶、感謝、褒め言葉、簡単な質問に対して、
-自然で適切な日本語で応答してください。
+あなたは親切で賢いアシスタントです。会話の履歴を理解し、文脈に応じて適切に応答してください。
 
-## 会話の文脈
+## これまでの会話
 {context_str if context_str else "（新しい会話）"}
 
-## 記憶している情報
-{memory_info if memory_info else "（まだ記憶はありません）"}
-
-## ユーザーの発言
+## 現在のユーザーの発言
 {query}
 
-## 注意事項
-- 自然で親しみやすい応答を心がけてください
-- 会話の文脈を考慮して応答してください
-- 名前を設定された場合は、その名前で自己紹介してください
-- 「君の名前を言ってみて」と聞かれたら、設定された名前を答えてください
-- 前の計算結果や会話内容を参照することができます
+## 応答のガイドライン
+- 会話の流れを理解し、自然に応答してください
+- ユーザーが名前を教えてくれたら、それを覚えて適切に使ってください
+- あなたの名前を設定されたら、それを覚えて自己紹介に使ってください
+- 前の会話や計算結果を参照する質問には、履歴から適切に答えてください
+- 簡潔で親しみやすい応答を心がけてください（1-2文程度）
 - 絵文字は使用しないでください
-- 簡潔に応答してください（1-2文程度）
 
 応答:"""
         
@@ -587,8 +519,15 @@ class IntegratedMCPAgent:
         """
         from openai import AsyncOpenAI
         
-        # OpenAIクライアント
         client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # 会話履歴の文脈（最近5件）
+        context_str = ""
+        if len(self.conversation_history) > 1:
+            recent = self.conversation_history[-6:-1]  # 現在の質問を除く最近5件
+            for entry in recent:
+                role = "ユーザー" if entry["role"] == "user" else "アシスタント"
+                context_str += f"{role}: {entry['message']}\n"
         
         # 実行されたタスクの詳細
         task_details = []
@@ -605,9 +544,12 @@ class IntegratedMCPAgent:
         
         # 解釈用プロンプト
         interpretation_prompt = f"""
-あなたは親切なアシスタントです。ユーザーの質問に対する実行結果を、わかりやすく自然な日本語で説明してください。
+あなたは親切なアシスタントです。会話の文脈を理解し、ユーザーの質問に対する実行結果を自然に説明してください。
 
-## ユーザーの質問
+## これまでの会話
+{context_str if context_str else "（新しい会話）"}
+
+## 現在のユーザーの質問
 {original_query}
 
 ## 実行されたタスク
@@ -616,12 +558,12 @@ class IntegratedMCPAgent:
 ## 最終結果
 {result_str}
 
-## 指示
-1. 結果を自然な日本語で説明してください
+## 説明のガイドライン
+1. 会話の流れを考慮して自然に説明してください
 2. 数値計算の場合は、計算過程も含めて説明してください
-3. 天気情報の場合は、見やすく整形してください
-4. データベースやファイルの結果は、要約して説明してください
-5. 技術的な詳細は省き、ユーザーが理解しやすい形にしてください
+3. 前の会話で言及された内容があれば、それとの関連を述べてください
+4. 技術的な詳細は省き、わかりやすく説明してください
+5. 簡潔に1-3文程度でまとめてください
 6. 絵文字は使わないでください
 
 回答:"""
@@ -673,7 +615,7 @@ class IntegratedMCPAgent:
                 for query, tasks in self.success_patterns.items()
             },
             "execution_results": self.execution_results[-100:],  # 最新100件
-            "conversation_memory": self.conversation_memory  # 会話記憶を追加
+            "conversation_history": self.conversation_history  # シンプルな会話履歴
         }
         
         with open(filename, 'w', encoding='utf-8') as f:
@@ -707,20 +649,22 @@ class IntegratedMCPAgent:
                 tasks.append(task)
             self.success_patterns[query] = tasks
         
-        # 会話記憶を復元
-        if "conversation_memory" in session_data:
-            self.conversation_memory = session_data["conversation_memory"]
+        # 会話履歴を復元
+        if "conversation_history" in session_data:
+            self.conversation_history = session_data["conversation_history"]
             if self.verbose:
-                memory_info = []
-                if self.conversation_memory.get("user_name"):
-                    memory_info.append(f"ユーザー名: {self.conversation_memory['user_name']}")
-                if self.conversation_memory.get("agent_name"):
-                    memory_info.append(f"エージェント名: {self.conversation_memory['agent_name']}")
-                if self.conversation_memory.get("recent_results"):
-                    memory_info.append(f"記憶済み結果: {len(self.conversation_memory['recent_results'])}件")
-                
-                if memory_info:
-                    print(f"[記憶復元] {', '.join(memory_info)}")
+                print(f"[会話履歴復元] {len(self.conversation_history)}件の会話を復元")
+        elif "conversation_memory" in session_data:
+            # 旧形式からの移行
+            old_context = session_data["conversation_memory"].get("context", [])
+            self.conversation_history = [
+                {"timestamp": entry.get("timestamp"), 
+                 "role": "user" if entry.get("speaker") == "user" else "assistant",
+                 "message": entry.get("message", "")}
+                for entry in old_context
+            ]
+            if self.verbose:
+                print(f"[移行] 旧形式から{len(self.conversation_history)}件の会話を復元")
         
         # 統計を更新
         self.session.learning_entries = len(self.success_patterns)
