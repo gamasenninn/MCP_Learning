@@ -1,0 +1,164 @@
+{
+  "timestamp": "2025-08-16T15:49:03.383049",
+  "stats": {
+    "duration_seconds": 307.679503,
+    "total_requests": 7,
+    "successful_tasks": 2,
+    "failed_tasks": 0,
+    "recovered_tasks": 0,
+    "success_rate": 100.0,
+    "learning_entries": 1
+  },
+  "command_history": [
+    "こんにちは",
+    "１００＋２００＋３００",
+    "君の名前は？",
+    "では名前をつけよう。今日から君はガーコだよよろしくね",
+    "では、君の名前をいってみて",
+    "俺の名前はサトシだよ",
+    "俺の名前はサトシだよ"
+  ],
+  "success_patterns": {
+    "１００＋２００＋３００": [
+      {
+        "id": "task_1",
+        "name": "100と200を加算する",
+        "tool": "add",
+        "server": "calculator",
+        "params": {
+          "a": 100,
+          "b": 200
+        },
+        "dependencies": [],
+        "result": "300.0",
+        "error": null
+      },
+      {
+        "id": "task_2",
+        "name": "task_1の結果と300を加算する",
+        "tool": "add",
+        "server": "calculator",
+        "params": {
+          "a": "{task_1}",
+          "b": 300
+        },
+        "dependencies": [
+          "task_1"
+        ],
+        "result": "600.0",
+        "error": null
+      }
+    ]
+  },
+  "execution_results": [
+    {
+      "query": "こんにちは",
+      "timestamp": "2025-08-16T15:44:06.605006",
+      "success": true,
+      "result": "こんにちは！今日はどんなことを話しましょうか？",
+      "error": null,
+      "tasks_executed": 0,
+      "recovery_attempted": false,
+      "learning_applied": false
+    },
+    {
+      "query": "１００＋２００＋３００",
+      "timestamp": "2025-08-16T15:44:15.922286",
+      "success": true,
+      "result": 600.0,
+      "error": null,
+      "tasks_executed": 2,
+      "recovery_attempted": false,
+      "learning_applied": false,
+      "interpretation": "計算を行いました。まず、100と200を足すと、合計は300になります。その後、この300にさらに300を足しました。最終的な合計は600となります。ですので、100＋200＋300の結果は600です。",
+      "execution_time": 4.973329
+    },
+    {
+      "query": "君の名前は？",
+      "timestamp": "2025-08-16T15:44:29.984693",
+      "success": true,
+      "result": "私の名前は「アシスタント」です。どうぞよろしくお願いします！",
+      "error": null,
+      "tasks_executed": 0,
+      "recovery_attempted": false,
+      "learning_applied": false
+    },
+    {
+      "query": "では名前をつけよう。今日から君はガーコだよよろしくね",
+      "timestamp": "2025-08-16T15:44:49.600115",
+      "success": true,
+      "result": "こんにちは！ガーコです。よろしくね！何かお手伝いできることがあれば教えてください。",
+      "error": null,
+      "tasks_executed": 0,
+      "recovery_attempted": false,
+      "learning_applied": false
+    },
+    {
+      "query": "では、君の名前をいってみて",
+      "timestamp": "2025-08-16T15:44:59.874637",
+      "success": true,
+      "result": "僕の名前はガーコだよ！よろしくね！",
+      "error": null,
+      "tasks_executed": 0,
+      "recovery_attempted": false,
+      "learning_applied": false
+    }
+  ],
+  "conversation_memory": {
+    "user_name": null,
+    "agent_name": "？",
+    "recent_results": [
+      {
+        "query": "１００＋２００＋３００",
+        "result": 600.0,
+        "timestamp": "2025-08-16T15:44:20.895615"
+      }
+    ],
+    "context": [
+      {
+        "timestamp": "2025-08-16T15:44:06.605006",
+        "speaker": "user",
+        "message": "こんにちは"
+      },
+      {
+        "timestamp": "2025-08-16T15:44:15.922286",
+        "speaker": "user",
+        "message": "１００＋２００＋３００"
+      },
+      {
+        "timestamp": "2025-08-16T15:44:20.895615",
+        "speaker": "agent",
+        "message": "600.0"
+      },
+      {
+        "timestamp": "2025-08-16T15:44:29.983687",
+        "speaker": "user",
+        "message": "君の名前は？"
+      },
+      {
+        "timestamp": "2025-08-16T15:44:49.600115",
+        "speaker": "user",
+        "message": "では名前をつけよう。今日から君はガーコだよよろしくね"
+      },
+      {
+        "timestamp": "2025-08-16T15:44:59.874056",
+        "speaker": "user",
+        "message": "では、君の名前をいってみて"
+      },
+      {
+        "timestamp": "2025-08-16T15:45:15.668392",
+        "speaker": "user",
+        "message": "俺の名前はサトシだよ"
+      },
+      {
+        "timestamp": "2025-08-16T15:45:26.435081",
+        "speaker": "user",
+        "message": "俺の名前はサトシだよ"
+      }
+    ],
+    "important_facts": {
+      "agent_name": "？"
+    },
+    "current_location": null
+  }
+}

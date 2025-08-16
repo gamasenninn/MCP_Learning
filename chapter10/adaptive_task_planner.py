@@ -35,11 +35,14 @@ class FailureContext:
 class AdaptiveTaskPlanner(UniversalTaskPlanner):
     """エラーから学習して適応するタスクプランナー"""
     
-    def __init__(self, api_key: Optional[str] = None):
-        super().__init__(api_key)
+    def __init__(self, config_file: str = "mcp_servers.json"):
+        super().__init__(config_file)
         self.failure_history: List[FailureContext] = []
         self.adaptation_cache = {}
         self.learning_enabled = True
+        
+        # OpenAI APIクライアントを再初期化（既に親クラスで初期化済み）
+        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     async def replan_on_error(
         self,
@@ -75,7 +78,7 @@ class AdaptiveTaskPlanner(UniversalTaskPlanner):
             )
             
             # 新しいタスクを解析
-            new_tasks = self._parse_tasks(response.choices[0].message.content)
+            new_tasks = await self._parse_replan_response(response.choices[0].message.content)
             
             if new_tasks:
                 print(f"  [成功] {len(new_tasks)}個の新しいタスクを生成")
@@ -179,6 +182,54 @@ class AdaptiveTaskPlanner(UniversalTaskPlanner):
         
         return "\n".join(prompt_parts)
     
+    async def _parse_replan_response(self, response_text: str) -> List[UniversalTask]:
+        """
+        LLMの再計画レスポンスを解析してタスクリストに変換
+        """
+        try:
+            # JSON部分を抽出
+            import re
+            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                # 全体をJSONとして扱う
+                json_str = response_text
+            
+            # JSONパース
+            data = json.loads(json_str)
+            
+            # タスクリストを作成
+            tasks = []
+            if isinstance(data, list):
+                task_list = data
+            elif isinstance(data, dict) and "tasks" in data:
+                task_list = data["tasks"]
+            else:
+                return []
+            
+            for task_data in task_list:
+                task = UniversalTask(
+                    id=task_data.get("id", f"task_{len(tasks)+1}"),
+                    name=task_data.get("name", "Task"),
+                    tool=task_data.get("tool", ""),
+                    server=task_data.get("server"),
+                    params=task_data.get("params", {}),
+                    dependencies=task_data.get("dependencies", [])
+                )
+                
+                # サーバー情報を追加
+                if task.tool in self.tools_info:
+                    task.server = self.tools_info[task.tool]["server"]
+                
+                tasks.append(task)
+            
+            return tasks
+            
+        except Exception as e:
+            print(f"  [警告] 再計画レスポンスの解析エラー: {e}")
+            return []
+    
     async def learn_from_success(
         self,
         query: str,
@@ -281,7 +332,7 @@ async def test_adaptive_planner():
         print("[警告] OPENAI_API_KEYが設定されていません")
         return
     
-    planner = AdaptiveTaskPlanner(api_key=api_key)
+    planner = AdaptiveTaskPlanner()
     await planner.initialize()
     
     # テスト1: 通常のタスク計画
