@@ -159,88 +159,8 @@ def execute_safe_query(sql: str) -> Dict[str, Any]:
         conn.close()
         raise ValueError(f"SQLエラー: {str(e)}")
 
-# プロンプト機能の追加
-@mcp.prompt()
-def sales_analysis_prompt(month: str, focus_category: str = None) -> str:
-    """月次売上分析用のプロンプト
-    
-    Args:
-        month: 分析する月（例：2024年3月）
-        focus_category: 特に注目するカテゴリ（省略可）
-    """
-    prompt = f"""
-{month}の売上データを以下の観点で分析してください：
-
-1. 総売上額と前月比
-2. カテゴリ別売上ランキング（上位5つ）
-3. 最も売れた商品TOP3
-4. 在庫回転率の分析
-"""
-    
-    if focus_category:
-        prompt += f"5. {focus_category}カテゴリの詳細分析\n"
-    
-    prompt += """
-分析結果は、経営層向けのサマリーとして、
-重要なインサイトと改善提案を含めて報告してください。
-"""
-    return prompt
-
-@mcp.prompt()
-def inventory_alert_prompt(threshold: int = 10) -> str:
-    """在庫アラート用のプロンプト
-    
-    Args:
-        threshold: 在庫警告の閾値（デフォルト：10）
-    """
-    return f"""
-在庫管理レポートを作成してください：
-
-1. 在庫が{threshold}個以下の商品をリストアップ
-2. 各商品の過去30日間の販売ペースを計算
-3. このペースで在庫切れになるまでの日数を予測
-4. 優先的に補充すべき商品を3つ提案
-5. 推奨発注数量を計算
-
-緊急度に応じて、[緊急]、[要注意]、[余裕あり]
-のマークを付けて視覚的に分かりやすく表示してください。
-"""
-
-@mcp.prompt()
-def customer_behavior_prompt(period: str, segment: str = None) -> str:
-    """顧客行動分析用のプロンプト
-    
-    Args:
-        period: 分析期間（例：過去3ヶ月）
-        segment: 顧客セグメント（新規/既存/VIP）（省略可）
-    """
-    prompt = f"""
-{period}の顧客購買行動を分析してください：
-
-1. 購買頻度の分布
-2. 平均購買単価の推移
-3. リピート率の計算
-"""
-    
-    if segment:
-        prompt += f"4. {segment}顧客の特徴的な行動パターン\n"
-    else:
-        prompt += "4. 顧客セグメント別の比較\n"
-    
-    prompt += """5. クロスセル/アップセルの機会
-
-マーケティング施策の提案：
-- ターゲット顧客層
-- 推奨するキャンペーン内容
-- 期待される効果
-
-データに基づいた具体的な数値を使って説明してください。
-"""
-    return prompt
-
 # サーバー起動
 if __name__ == "__main__":
     print("[起動] MCPサーバー（プロンプト機能付き完全版）を起動します...")
     print("[ツール] 利用可能なツール: list_tables, get_table_schema, execute_safe_query")
-    print("[プロンプト] 利用可能なプロンプト: sales_analysis_prompt, inventory_alert_prompt, customer_behavior_prompt")
     mcp.run()
