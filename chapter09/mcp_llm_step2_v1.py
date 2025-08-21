@@ -1,8 +1,6 @@
 """
-Step 2: LLM統合の準備 (V3 - 元のコード保持版)
+Step 2: LLM統合の準備
 ツール情報をLLMが理解しやすい形式に整形
-
-※元のコードから変更なし
 """
 import json
 from typing import Dict, List, Any

@@ -1,8 +1,6 @@
 """
-Step 3: 統合テスト (V3 - 元のコード保持版)
+Step 3: 統合テスト
 Step 1とStep 2を組み合わせた動作確認
-
-※接続部分のみ修正、その他は元のコードと同じ
 """
 import asyncio
 import os
@@ -10,7 +8,6 @@ from typing import List, Dict, Any
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from fastmcp import Client
-from fastmcp.client.transports import StdioTransport
 
 # Step 1とStep 2のクラスをインポート
 from mcp_llm_step1 import ToolCollector
@@ -34,12 +31,9 @@ class IntegrationTester:
         # Step 1: ツール情報の収集
         await self.collector.collect_all_tools()
         
-        # MCPクライアントの接続を維持（StdioTransport対応）
+        # MCPクライアントの接続を維持
         for server_name, server_info in self.collector.servers.items():
-            command = server_info["path"][0]
-            args = server_info["path"][1:]
-            transport = StdioTransport(command=command, args=args)
-            client = Client(transport)
+            client = Client(server_info["path"])
             await client.__aenter__()
             self.clients[server_name] = client
         
