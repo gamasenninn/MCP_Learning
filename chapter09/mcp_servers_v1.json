@@ -1,0 +1,28 @@
+{
+  "servers": [
+    {
+      "name": "calculator",
+      "path": "C:\\MCP_Learning\\chapter03\\calculator_server.py",
+      "description": "基本的な計算機能",
+      "chapter": "第3章"
+    },
+    {
+      "name": "database",
+      "path": "C:\\MCP_Learning\\chapter06\\database_server.py",
+      "description": "SQLiteデータベース操作",
+      "chapter": "第6章"
+    },
+    {
+      "name": "weather",
+      "path": "C:\\MCP_Learning\\chapter07\\external_api_server.py",
+      "description": "天気情報の取得",
+      "chapter": "第7章"
+    },
+    {
+      "name": "universal",
+      "path": "C:\\MCP_Learning\\chapter08\\universal_tools_server.py",
+      "description": "Web検索・コード実行",
+      "chapter": "第8章"
+    }
+  ]
+}

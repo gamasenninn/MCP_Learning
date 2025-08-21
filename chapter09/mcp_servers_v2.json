@@ -1,0 +1,102 @@
+{
+  "mcpServers": {
+    "calculator": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "C:\\MCP_Learning\\chapter03",
+        "run",
+        "python",
+        "calculator_server.py"
+      ],
+      "meta": {
+        "description": "基本的な計算機能",
+        "chapter": "第3章"
+      }
+    },
+    "database": {
+      "command": "uv",
+      "args": [
+        "--directory", 
+        "C:\\MCP_Learning\\chapter06",
+        "run",
+        "python",
+        "database_server.py"
+      ],
+      "meta": {
+        "description": "SQLiteデータベース操作",
+        "chapter": "第6章"
+      }
+    },
+    "weather": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "C:\\MCP_Learning\\chapter07", 
+        "run",
+        "python",
+        "api_server.py"
+      ],
+      "meta": {
+        "description": "外部API連携（天気情報）",
+        "chapter": "第7章"
+      }
+    },
+    "web_tools": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "C:\\MCP_Learning\\chapter08",
+        "run", 
+        "python",
+        "web_tools_server.py"
+      ],
+      "meta": {
+        "description": "Webスクレイピングとアクセス",
+        "chapter": "第8章"
+      }
+    },
+    "code_execution": {
+      "command": "uv", 
+      "args": [
+        "--directory",
+        "C:\\MCP_Learning\\chapter08",
+        "run",
+        "python", 
+        "code_execution_server.py"
+      ],
+      "meta": {
+        "description": "Pythonコード実行環境",
+        "chapter": "第8章"
+      }
+    },
+    "data_processing": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "C:\\MCP_Learning\\chapter08", 
+        "run",
+        "python",
+        "data_processing_server.py"
+      ],
+      "meta": {
+        "description": "データ処理とファイル操作",
+        "chapter": "第8章"
+      }
+    },
+    "filesystem": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "C:\\MCP_Learning\\chapter08",
+        "run",
+        "python",
+        "filesystem_server.py"
+      ],
+      "meta": {
+        "description": "ファイルシステム操作",
+        "chapter": "第8章"
+      }
+    }
+  }
+}
