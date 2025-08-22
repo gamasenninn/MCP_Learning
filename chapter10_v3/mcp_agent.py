@@ -230,8 +230,14 @@ class MCPAgent:
         # 利用可能なツール情報を取得
         tools_info = self.connection_manager.format_tools_for_llm()
         
+        # 会話文脈を取得
+        context = self._get_recent_context()
+        
         # 階層的プロンプトの構築
         prompt = f"""{self.base_instructions}
+
+## 最近の会話
+{context if context else "（新規会話）"}
 
 ## 利用可能なツール
 {tools_info}
@@ -352,9 +358,15 @@ class MCPAgent:
         # 結果をJSONシリアライズ可能にする
         serializable_results = self._safe_serialize(all_results)
         
+        # 会話文脈を取得
+        context = self._get_recent_context()
+        
         # LLMに解釈を依頼
         interpretation_prompt = f"""
 あなたは実行結果を解釈して、ユーザーに分かりやすく回答するアシスタントです。
+
+## 会話の文脈
+{context if context else "（新規会話）"}
 
 ## ユーザーの元の質問
 {original_query}
@@ -446,6 +458,21 @@ class MCPAgent:
         # 履歴の長さ制限（最新50件）
         if len(self.conversation_history) > 50:
             self.conversation_history = self.conversation_history[-50:]
+    
+    def _get_recent_context(self, max_items: int = 3) -> str:
+        """最近の会話文脈を取得（シンプル版）"""
+        if not self.conversation_history:
+            return ""
+        
+        recent = self.conversation_history[-max_items:]
+        lines = []
+        for h in recent:
+            role = "User" if h['role'] == "user" else "Assistant"
+            # 長いメッセージは省略
+            msg = h['message'][:150] + "..." if len(h['message']) > 150 else h['message']
+            lines.append(f"{role}: {msg}")
+        
+        return "\n".join(lines)
     
     async def _correct_parameters(self, tool: str, params: Dict[str, Any], error: str) -> Optional[Dict[str, Any]]:
         """
