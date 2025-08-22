@@ -20,6 +20,7 @@ if sys.platform == "win32":
 # 第9章のコンポーネントをインポート
 # MCPConnectionManagerを使用
 from mcp_connection_manager import MCPConnectionManager
+from tool_usage_learner import ToolUsageLearner
 
 load_dotenv()
 
@@ -58,6 +59,7 @@ class UniversalTaskPlanner:
         self.connection_manager = connection_manager or MCPConnectionManager()
         self.llm = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.tools_info = {}
+        self.usage_learner = ToolUsageLearner()
         
     async def initialize(self):
         """接続マネージャーを初期化してツール情報を取得"""
@@ -67,6 +69,17 @@ class UniversalTaskPlanner:
         
         # 接続マネージャーからツール情報を取得
         self.tools_info = self.connection_manager.tools_info
+        
+        # ツール使用学習者を初期化
+        tools_schema = {}
+        for tool_name, info in self.tools_info.items():
+            tools_schema[tool_name] = {"schema": info["schema"]}
+        
+        # 詳細情報を収集
+        self.usage_learner.collect_detailed_tool_info(self.connection_manager)
+        
+        # パターンを初期化
+        self.usage_learner.initialize_tool_patterns(tools_schema)
     
     async def plan_task(self, query: str) -> List[UniversalTask]:
         """クエリをタスクに分解"""
@@ -88,6 +101,23 @@ class UniversalTaskPlanner:
         
         tools_detail_str = "\n".join(tools_detail)
         
+        # 動的に使用例を生成（詳細情報対応版）
+        usage_examples = []
+        for tool_name in self.tools_info.keys():
+            examples = self.usage_learner.get_usage_examples(tool_name, limit=2)
+            for example in examples:
+                params_str = json.dumps(example.params, ensure_ascii=False)
+                
+                # 詳細情報があれば追加
+                detail_info = ""
+                if example.use_cases:
+                    use_cases_str = "、".join(example.use_cases[:2])
+                    detail_info = f" (例: {use_cases_str})"
+                
+                usage_examples.append(f'- "{example.query_pattern}" → {tool_name} ツールで params: {params_str}{detail_info}')
+        
+        usage_examples_str = "\n".join(usage_examples)
+        
         prompt = f"""
 あなたはタスクプランナーです。ユーザーのリクエストを分析し、利用可能なツールを使って実行可能なタスクに分解してください。
 
@@ -106,17 +136,8 @@ class UniversalTaskPlanner:
 6. 前のタスクの結果を使う場合は、パラメータに "{{task_X}}" と記述してください
 7. **重要**: パラメータは必ず具体的な値を入れてください。空の辞書 {{}} は使用しないでください
 
-## 例
-- "100 + 200を計算" → add ツールで params: {{"a": 100, "b": 200}}
-- "2の8乗" → power ツールで params: {{"a": 2, "b": 8}}  （aのb乗）
-- "結果を2倍" → multiply ツールで params: {{"a": "{{task_1}}", "b": 2}}
-- "100から25を引く" → subtract ツールで params: {{"a": 100, "b": 25}}
-- "100を4で割る" → divide ツールで params: {{"a": 100, "b": 4}}
-- "商品の一覧を表示" → execute_safe_query ツールで params: {{"sql": "SELECT * FROM products"}}
-- "テーブル構造を確認" → list_tables ツールで params: {{}}
-- "商品テーブルのスキーマ" → get_table_schema ツールで params: {{"table_name": "products"}}
-- "在庫が10以下の商品" → execute_safe_query ツールで params: {{"sql": "SELECT * FROM products WHERE stock <= 10"}}
-- "売上データを表示" → execute_safe_query ツールで params: {{"sql": "SELECT * FROM sales"}}
+## 使用例（利用可能なツールに基づく）
+{usage_examples_str}
 
 ## 出力形式（JSON）
 
@@ -231,6 +252,10 @@ class UniversalTaskPlanner:
                     errors.append(f"タスク {task.id}: 依存タスク '{dep_id}' が存在しない")
         
         return errors
+    
+    def learn_from_execution(self, tool_name: str, query: str, params: Dict[str, Any]):
+        """成功した実行から学習"""
+        self.usage_learner.learn_from_success(tool_name, query, params)
 
 async def test_planner():
     """プランナーのテスト"""

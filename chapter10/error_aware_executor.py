@@ -13,12 +13,15 @@ import asyncio
 import json
 import os
 import sys
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
 from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
 from dotenv import load_dotenv
 import re
+
+if TYPE_CHECKING:
+    from universal_task_planner import UniversalTaskPlanner
 
 # Windows環境でのUnicode対応
 if sys.platform == "win32":
@@ -48,11 +51,13 @@ class ErrorAwareExecutor:
     def __init__(
         self,
         connection_manager: Optional[MCPConnectionManager] = None,
+        task_planner: Optional["UniversalTaskPlanner"] = None,
         use_ai: bool = True,
         max_retries: int = 3,
         verbose: bool = True
     ):
         self.connection_manager = connection_manager or MCPConnectionManager()
+        self.task_planner = task_planner
         self.use_ai = use_ai
         self.max_retries = max_retries
         self.verbose = verbose
@@ -182,6 +187,14 @@ class ErrorAwareExecutor:
                             Exception("Previous error resolved"),
                             execution_attempt.fix_applied or {},
                             True
+                        )
+                    
+                    # タスクプランナーに成功した実行を学習させる
+                    if self.task_planner and hasattr(task, 'original_query'):
+                        self.task_planner.learn_from_execution(
+                            task.tool, 
+                            task.original_query, 
+                            task.params
                         )
                     
                     return result

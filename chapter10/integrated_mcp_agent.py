@@ -83,6 +83,7 @@ class IntegratedMCPAgent:
         self.adaptive_planner = AdaptiveTaskPlanner(self.connection_manager) if use_ai else None
         self.executor = ErrorAwareExecutor(
             connection_manager=self.connection_manager,
+            task_planner=self.planner,
             use_ai=use_ai,
             max_retries=max_retries,
             verbose=verbose
@@ -199,6 +200,10 @@ class IntegratedMCPAgent:
                     
                     self.execution_results.append(result)
                     return result
+                
+                # 各タスクに元のクエリを追加（学習用）
+                for task in tasks:
+                    task.original_query = query
                 
                 if self.verbose:
                     print(f"  → {len(tasks)}個のタスクに分解")
