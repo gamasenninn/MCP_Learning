@@ -8,9 +8,9 @@
           "a": 10,
           "b": 5
         },
-        "success_count": 0,
-        "last_used": "",
-        "source": "inferred",
+        "success_count": 30,
+        "last_used": "2025-08-22T14:55:00.832077",
+        "source": "learned",
         "use_cases": [],
         "param_details": {}
       }
@@ -23,9 +23,9 @@
           "a": 10,
           "b": 5
         },
-        "success_count": 0,
-        "last_used": "",
-        "source": "inferred",
+        "success_count": 1,
+        "last_used": "2025-08-22T15:29:02.857131",
+        "source": "learned",
         "use_cases": [],
         "param_details": {}
       }
@@ -38,9 +38,9 @@
           "a": 10,
           "b": 5
         },
-        "success_count": 0,
-        "last_used": "",
-        "source": "inferred",
+        "success_count": 30,
+        "last_used": "2025-08-22T14:55:00.828078",
+        "source": "learned",
         "use_cases": [],
         "param_details": {}
       }
@@ -108,9 +108,9 @@
         "tool_name": "list_tables",
         "query_pattern": "構造を確認",
         "params": {},
-        "success_count": 0,
-        "last_used": "",
-        "source": "inferred",
+        "success_count": 6,
+        "last_used": "2025-08-22T16:10:52.997098",
+        "source": "learned",
         "use_cases": [],
         "param_details": {}
       }
@@ -122,9 +122,9 @@
         "params": {
           "table_name": "table_name"
         },
-        "success_count": 0,
-        "last_used": "",
-        "source": "inferred",
+        "success_count": 5,
+        "last_used": "2025-08-22T16:10:53.002104",
+        "source": "learned",
         "use_cases": [],
         "param_details": {}
       }
@@ -139,6 +139,42 @@
         "success_count": 0,
         "last_used": "",
         "source": "inferred",
+        "use_cases": [],
+        "param_details": {}
+      },
+      {
+        "tool_name": "execute_safe_query",
+        "query_pattern": "だから商品データを読んで一覧で表示。１０件分。",
+        "params": {
+          "sql": "SELECT * FROM products LIMIT 10"
+        },
+        "success_count": 5,
+        "last_used": "2025-08-22T16:10:53.006105",
+        "source": "learned",
+        "use_cases": [],
+        "param_details": {}
+      },
+      {
+        "tool_name": "execute_safe_query",
+        "query_pattern": "商品データで単価の高い順に出力。１０件ぶん。",
+        "params": {
+          "sql": "SELECT * FROM products ORDER BY price DESC LIMIT 10"
+        },
+        "success_count": 1,
+        "last_used": "2025-08-22T15:22:53.031995",
+        "source": "learned",
+        "use_cases": [],
+        "param_details": {}
+      },
+      {
+        "tool_name": "execute_safe_query",
+        "query_pattern": "顧客一覧を出力して",
+        "params": {
+          "sql": "SELECT * FROM customers"
+        },
+        "success_count": 1,
+        "last_used": "2025-08-22T15:23:15.892410",
+        "source": "learned",
         "use_cases": [],
         "param_details": {}
       }
@@ -161,8 +197,8 @@
           "city": "Tokyo",
           "country_code": "JP"
         },
-        "success_count": 2,
-        "last_used": "2025-08-22T14:05:09.309875",
+        "success_count": 7,
+        "last_used": "2025-08-22T15:31:16.628007",
         "source": "learned",
         "use_cases": [],
         "param_details": {}
@@ -218,6 +254,18 @@
         "source": "inferred",
         "use_cases": [],
         "param_details": {}
+      },
+      {
+        "tool_name": "get_ip_info",
+        "query_pattern": "現在の位置をＩＰから調べて",
+        "params": {
+          "ip_address": ""
+        },
+        "success_count": 1,
+        "last_used": "2025-08-22T15:30:44.736094",
+        "source": "learned",
+        "use_cases": [],
+        "param_details": {}
       }
     ],
     "web_search": [
@@ -261,8 +309,8 @@
         "params": {
           "code": "principal = 1000\nrate = 0.05\nyears = 10\ncompound_interest = principal * (1 + rate) ** years\ncompound_interest"
         },
-        "success_count": 2,
-        "last_used": "2025-08-22T14:10:07.422607",
+        "success_count": 12,
+        "last_used": "2025-08-22T15:20:12.666879",
         "source": "learned",
         "use_cases": [],
         "param_details": {}
@@ -368,8 +416,8 @@
           "path": "example.txt",
           "content": "サンプルテキスト"
         },
-        "success_count": 2,
-        "last_used": "2025-08-22T14:10:07.428599",
+        "success_count": 3,
+        "last_used": "2025-08-22T15:20:12.679871",
         "source": "learned",
         "use_cases": [],
         "param_details": {
@@ -527,7 +575,7 @@
     },
     "get_table_schema": {
       "server": "database",
-      "description": "指定したテーブルの詳細なスキーマ情報とサンプルデータを取得。",
+      "description": "指定したテーブルの詳細なスキーマ情報を取得。",
       "use_cases": [],
       "param_details": {}
     },
@@ -595,7 +643,7 @@
     },
     "execute_python": {
       "server": "universal",
-      "description": "安全なPythonコード実行（セキュリティレベル3）。",
+      "description": "最高セキュリティのPythonコード実行（レベル4：完全サンドボックス）。",
       "use_cases": [],
       "param_details": {}
     },
@@ -733,5 +781,5 @@
       "param_details": {}
     }
   },
-  "last_updated": "2025-08-22T14:14:19.227587"
+  "last_updated": "2025-08-22T16:10:53.006105"
 }

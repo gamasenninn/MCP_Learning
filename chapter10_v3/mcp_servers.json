@@ -1,0 +1,44 @@
+{
+  "mcpServers": {
+    "calculator": {
+      "command": "uv",
+      "args": ["--directory", "C:\\MCP_Learning\\chapter03", "run", "python", "calculator_server.py"],
+      "meta": {
+        "description": "基本的な計算機能",
+        "chapter": "第3章"
+      }
+    },
+    "database": {
+      "command": "uv", 
+      "args": ["--directory", "C:\\MCP_Learning\\chapter06", "run", "python", "database_server.py"],
+      "meta": {
+        "description": "SQLiteデータベース操作",
+        "chapter": "第6章"
+      }
+    },
+    "weather": {
+      "command": "uv",
+      "args": ["--directory", "C:\\MCP_Learning\\chapter07", "run", "python", "external_api_server.py"], 
+      "meta": {
+        "description": "天気情報の取得",
+        "chapter": "第7章"
+      }
+    },
+    "universal": {
+      "command": "uv",
+      "args": ["--directory", "C:\\MCP_Learning\\chapter08", "run", "python", "universal_tools_server.py"],
+      "meta": {
+        "description": "Web検索・コード実行",
+        "chapter": "第8章"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\MCP_Learning\\chapter10"],
+      "meta": {
+        "description": "ファイルシステム操作",
+        "chapter": "第1章"
+      }
+    }
+  }
+}

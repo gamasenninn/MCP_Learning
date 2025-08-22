@@ -82,11 +82,11 @@ def list_tables() -> List[Dict[str, Any]]:
 
 @mcp.tool()
 def get_table_schema(table_name: str) -> Dict[str, Any]:
-    """指定したテーブルの詳細なスキーマ情報とサンプルデータを取得。
+    """指定したテーブルの詳細なスキーマ情報を取得。
     
     カラム名、データ型、NULL制約、デフォルト値、プライマリキー情報を含む。
-    サンプルデータ（3件）とレコード数も返却。
-    例：「usersテーブルの構造を見たい」「商品テーブルには何が入ってる？」
+    テーブル構造の理解、SQL作成の準備に使用。
+    例：「usersテーブルの構造を見たい」「商品テーブルのカラムを確認」
     """
     conn = get_db_connection()
     
@@ -110,9 +110,6 @@ def get_table_schema(table_name: str) -> Dict[str, Any]:
             "is_primary_key": bool(row[5])
         })
     
-    cursor = conn.execute(f'SELECT * FROM {table_name} LIMIT 3')
-    sample_data = [dict(row) for row in cursor.fetchall()]
-    
     cursor = conn.execute(f'SELECT COUNT(*) as count FROM {table_name}')
     record_count = cursor.fetchone()["count"]
     
@@ -121,8 +118,7 @@ def get_table_schema(table_name: str) -> Dict[str, Any]:
     return {
         "table_name": table_name,
         "columns": columns,
-        "record_count": record_count,
-        "sample_data": sample_data
+        "record_count": record_count
     }
 
 @mcp.tool()
@@ -132,7 +128,9 @@ def execute_safe_query(sql: str) -> Dict[str, Any]:
     INSERT/UPDATE/DELETE/DROPなどの破壊的操作は禁止。
     JOIN、GROUP BY、ORDER BY、WHERE句などはOK。
     結果はJSON形式でカラム名、データ、実行時刻を含む。
-    例：「売上トップ10を出して」「今月の売上合計を計算」
+    
+    重要：まずlist_tablesとget_table_schemaでテーブル構造を確認してからSQLを作成すること。
+    例：「売上合計を計算」→salesテーブルを使用、「商品一覧」→productsテーブルを使用
     """
     if not validate_sql_safety(sql):
         raise ValueError("安全でないSQL文です。SELECT文のみ実行可能です。")

@@ -197,6 +197,52 @@ SAFE_BUILTIN_NAMES = [
     'abs', 'round', 'divmod', 'all', 'any', 'zip', 'enumerate'
 ]
 
+def add_print_if_needed(code: str) -> str:
+    """
+    必要に応じてprint()を自動追加する関数
+    
+    1. 既にprint()がある場合 → そのまま
+    2. 最後の行が式（expression）の場合 → print()でラップ
+    3. 最後の行が代入の場合 → その変数をprint()
+    4. その他の場合 → そのまま
+    """
+    try:
+        # コードをASTで解析
+        tree = ast.parse(code.strip())
+        if not tree.body:
+            return code
+        
+        # 既にprint()が含まれているかチェック
+        code_lower = code.lower()
+        if 'print(' in code_lower:
+            return code
+        
+        last_stmt = tree.body[-1]
+        
+        # 最後の文が式（Expr）の場合 → print()でラップ
+        if isinstance(last_stmt, ast.Expr):
+            # 最後の行を取得
+            lines = code.strip().split('\n')
+            last_line = lines[-1].strip()
+            
+            # print()でラップ
+            lines[-1] = f"print({last_line})"
+            return '\n'.join(lines)
+        
+        # 最後の文が代入（Assign）の場合 → 代入された変数をprint()
+        elif isinstance(last_stmt, ast.Assign):
+            # 代入されたターゲットを取得
+            if last_stmt.targets and isinstance(last_stmt.targets[0], ast.Name):
+                var_name = last_stmt.targets[0].id
+                return code + f"\nprint({var_name})"
+        
+        # その他（if、for、def など）の場合 → そのまま
+        return code
+        
+    except (SyntaxError, ValueError):
+        # パースエラーの場合はそのまま返す
+        return code
+
 def check_code_safety(code: str) -> Tuple[bool, str]:
     """
     コードの安全性をチェック
@@ -304,89 +350,29 @@ exec(sys.stdin.read(), {'__builtins__': safe_builtins}, None)
 """)
 
 @mcp.tool()
-def execute_python(code: str, timeout: float = 3.0) -> Dict[str, Any]:
-    """安全なPythonコード実行（セキュリティレベル3）。
-    
-    計算、データ処理、アルゴリズム検証などに使用。
-    AST検査で危険なコードを事前ブロック。許可モジュール制限付き。
-    実行結果を表示するために、最後にprint()で終了すること。
-    例：「フィボナッチ数列を計算」「リストをソート」
-    
-    Args:
-        code: 実行するPythonコード
-        timeout: タイムアウト秒数（デフォルト3秒）
-    
-    Returns:
-        成功フラグ、標準出力、エラー出力を含む辞書
-    """
-    # まず安全性をチェック
-    is_safe, message = check_code_safety(code)
-    if not is_safe:
-        return {
-            'success': False,
-            'error': f'セキュリティエラー: {message}'
-        }
-    
-    # ワーカーコードを生成
-    worker_code = WORKER_TEMPLATE_SIMPLE.substitute(
-        ALLOWED_MODULES=repr(sorted(ALLOWED_MODULES)),
-        SAFE_BUILTIN_NAMES=repr(SAFE_BUILTIN_NAMES)
-    )
-    
-    # 子プロセスで実行（mcp_executor.py方式）
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # 環境変数でPythonのエンコーディングを指定（日本語対応）
-        env = os.environ.copy()
-        env['PYTHONIOENCODING'] = 'utf-8'
-        
-        cmd = [sys.executable, "-I", "-S", "-B", "-c", worker_code]
-        
-        try:
-            proc = subprocess.run(
-                cmd,
-                input=code,
-                text=True,
-                capture_output=True,
-                cwd=tmpdir,  # 一時ディレクトリに制限
-                timeout=timeout,
-                encoding='utf-8',
-                env=env
-            )
-            
-            if proc.returncode == 0:
-                return {
-                    'success': True,
-                    'stdout': proc.stdout.strip() or '（出力なし）',
-                    'stderr': proc.stderr.strip()
-                }
-            else:
-                return {
-                    'success': False,
-                    'error': f'実行エラー（終了コード {proc.returncode}）',
-                    'stdout': proc.stdout,
-                    'stderr': proc.stderr
-                }
-                
-        except subprocess.TimeoutExpired:
-            return {
-                'success': False,
-                'error': f'タイムアウト（{timeout}秒）'
-            }
-
-@mcp.tool()
-def execute_python_secure(code: str) -> str:
+def execute_python(code: str) -> str:
     """最高セキュリティのPythonコード実行（レベル4：完全サンドボックス）。
     
     信頼できないコードの実行、セキュリティ検証、教育目的のコード実行に使用。
     AST検査、プロセス隔離、リソース制限（CPU 2秒、メモリ256MB）付き。
-    実行結果を表示するために、最後にprint()で終了すること。
-    例：「ユーザー入力コードの安全実行」「教育サイトでのコード実行」
+    
+    【重要】結果を見るには必ずprint()を使用してください！
+    - 計算結果: result = 計算; print(result)
+    - 変数の値: x = 42; print(x)
+    - 複数の値: print(a, b, c)
+    
+    例：
+    - result = sum(range(100)); print(result)
+    - primes = [x for x in range(2, 20) if all(x % y for y in range(2, x))]; print(primes)
     
     Returns:
         実行結果またはエラーメッセージ（文字列）
     """
+    # 自動print()追加
+    enhanced_code = add_print_if_needed(code)
+    
     # 1. 静的解析でコードをチェック
-    is_safe, msg = check_code_safety(code)
+    is_safe, msg = check_code_safety(enhanced_code)
     if not is_safe:
         return f"セキュリティエラー: {msg}"
     
@@ -408,7 +394,7 @@ def execute_python_secure(code: str) -> str:
         try:
             proc = subprocess.run(
                 cmd,
-                input=code,
+                input=enhanced_code,
                 text=True,
                 capture_output=True,
                 cwd=tmpdir,  # 一時ディレクトリに制限
@@ -423,7 +409,10 @@ def execute_python_secure(code: str) -> str:
                 out += "\n... [出力が切り詰められました]"
             
             if proc.returncode == 0:
-                return f"成功:\n{out}"
+                if out.strip():
+                    return f"成功:\n{out}"
+                else:
+                    return "成功:\n（出力なし）\nヒント: 結果を表示するには print() を使用してください。例: print(result)"
             else:
                 return f"実行エラー:\n{proc.stderr}"
                 
@@ -437,11 +426,22 @@ def execute_python_basic(code: str) -> Dict[str, Any]:
     シンプルな計算、データ処理、スクリプト実行に使用。
     別プロセスで実行するためメイン環境は保護される。
     セキュリティチェックなしのため、信頼できるコードのみ実行推奨。
-    例：「1+1を計算」「print('Hello')を実行」
+    
+    【重要】結果を見るには必ずprint()を使用してください！
+    - 単純な計算: print(1 + 1)
+    - 変数の表示: name = 'Hello'; print(name)
+    - 複雑な処理: result = 処理; print(result)
+    
+    例：
+    - print(1 + 1)  # → 2
+    - nums = [1, 2, 3]; print(sum(nums))  # → 6
     
     Returns:
         成功フラグ、標準出力、エラー出力を含む辞書
     """
+    # 自動print()追加
+    enhanced_code = add_print_if_needed(code)
+    
     try:
         # 環境変数でPythonのエンコーディングを指定（日本語対応）
         env = os.environ.copy()
@@ -454,7 +454,7 @@ def execute_python_basic(code: str) -> Dict[str, Any]:
         # - より高速で安定
         result = subprocess.run(
             [sys.executable, "-c", "import sys; exec(sys.stdin.read())"],
-            input=code,              # コードを標準入力として渡す
+            input=enhanced_code,     # 強化されたコードを標準入力として渡す
             capture_output=True,     # 出力をキャプチャ
             text=True,              # テキストとして扱う
             timeout=5,              # 5秒でタイムアウト
@@ -462,9 +462,14 @@ def execute_python_basic(code: str) -> Dict[str, Any]:
             env=env                 # 環境変数を渡す
         )
         
+        stdout = result.stdout.strip()
+        if result.returncode == 0 and not stdout:
+            # 成功したが出力がない場合の警告
+            stdout = "（出力なし）\nヒント: 結果を表示するには print() を使用してください。例: print(result)"
+        
         return {
             'success': result.returncode == 0,  # 0は成功を意味する
-            'stdout': result.stdout,            # 標準出力（print文の結果）
+            'stdout': stdout,                   # 標準出力（print文の結果）
             'stderr': result.stderr             # エラー出力
         }
         
