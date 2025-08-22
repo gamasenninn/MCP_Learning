@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """
-MCPConnectionManager V2 - MCP接続管理層（mcpServers形式対応版）
+MCPConnectionManager - MCP接続管理層
 全てのMCPサーバーへの接続とツール情報を一元管理
-
-V2の主要変更点：
-- mcpServers形式の設定ファイル対応
-- StdioTransportを使用した接続
-- 第9章と同様の接続方式に統一
 """
 
 import asyncio
@@ -16,8 +11,6 @@ import sys
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
-from fastmcp import Client
-from fastmcp.client.transports import StdioTransport
 
 # Windows環境でのUnicode対応
 if sys.platform == "win32":
@@ -25,9 +18,24 @@ if sys.platform == "win32":
 
 load_dotenv()
 
+# MCPクライアントをインポート
+current_dir = Path(__file__).parent
+parent_dir = current_dir.parent
+sys.path.insert(0, str(parent_dir / "chapter09"))
+
+try:
+    from mcp_client_minimal import Client
+except ImportError:
+    # フォールバック: 同じディレクトリから試す
+    try:
+        from mcp_client import Client
+    except ImportError:
+        # 最終フォールバック
+        from mcp_llm_step1 import Client
+
 class MCPConnectionManager:
     """
-    MCPサーバーへの接続を一元管理するマネージャー（V2版）
+    MCPサーバーへの接続を一元管理するマネージャー
     
     このクラスが全てのサーバー接続とツール情報を管理することで、
     上位層は接続の詳細を意識せずに済む
@@ -53,26 +61,16 @@ class MCPConnectionManager:
         self._load_config()
     
     def _load_config(self):
-        """設定ファイルを読み込み（mcpServers形式対応）"""
+        """設定ファイルを読み込み"""
         if not os.path.exists(self.config_file):
             raise FileNotFoundError(f"設定ファイルが見つかりません: {self.config_file}")
         
         with open(self.config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
         
-        # mcpServers形式から従来のpath形式に変換（第9章と同じ方式）
-        if "mcpServers" in config:
-            for server_name, server_config in config["mcpServers"].items():
-                # commandとargsを結合してpathを作成
-                path = [server_config["command"]] + server_config["args"]
-                self.servers[server_name] = {
-                    "name": server_name,
-                    "path": path
-                }
-        else:
-            # 従来形式（servers配列）のサポートも維持
-            for server_info in config.get("servers", []):
-                self.servers[server_info["name"]] = server_info
+        # サーバー情報を整理
+        for server_info in config.get("servers", []):
+            self.servers[server_info["name"]] = server_info
     
     async def initialize(self):
         """
@@ -87,7 +85,7 @@ class MCPConnectionManager:
         
         if self.verbose:
             print("\n" + "=" * 70)
-            print(" MCP接続管理層 V2 - 初期化")
+            print(" MCP接続管理層 - 初期化")
             print("=" * 70)
             print(f"[設定] {len(self.servers)}個のサーバーを検出")
         
@@ -106,7 +104,7 @@ class MCPConnectionManager:
             print("=" * 70)
     
     async def _connect_all_servers(self):
-        """全サーバーに接続（StdioTransport対応）"""
+        """全サーバーに接続"""
         if self.verbose:
             print("\n[接続] MCPサーバーに接続中...")
         
@@ -115,11 +113,8 @@ class MCPConnectionManager:
                 if self.verbose:
                     print(f"  {server_name}に接続中...", end="")
                 
-                # StdioTransportを使用してクライアントを作成して接続
-                command = server_info["path"][0]
-                args = server_info["path"][1:]
-                transport = StdioTransport(command=command, args=args)
-                client = Client(transport)
+                # クライアントを作成して接続
+                client = Client(server_info["path"])
                 await client.__aenter__()
                 self.clients[server_name] = client
                 
@@ -262,7 +257,7 @@ class MCPConnectionManager:
     def __str__(self) -> str:
         """接続状態の文字列表現"""
         return (
-            f"MCPConnectionManager V2("
+            f"MCPConnectionManager("
             f"servers={len(self.servers)}, "
             f"connected={len(self.clients)}, "
             f"tools={len(self.tools_info)})"
@@ -274,9 +269,9 @@ class MCPConnectionManager:
 
 # テスト関数
 async def test_connection_manager():
-    """MCPConnectionManager V2のテスト"""
+    """MCPConnectionManagerのテスト"""
     
-    print("MCPConnectionManager V2のテスト")
+    print("MCPConnectionManagerのテスト")
     print("=" * 60)
     
     # マネージャーの作成と初期化
@@ -290,12 +285,7 @@ async def test_connection_manager():
     print("\n[利用可能なツール]")
     for tool_name, info in list(manager.tools_info.items())[:5]:  # 最初の5個
         print(f"  - {tool_name} (サーバー: {info['server']})")
-        desc = info['schema'].get('description', 'No description')
-        # Windowsエンコーディング対応のため、安全な表示
-        try:
-            print(f"    {desc[:50]}...")
-        except UnicodeEncodeError:
-            print("    [説明は正常に読み込まれました]")
+        print(f"    {info['schema'].get('description', 'No description')[:50]}...")
     
     # ツール実行のテスト
     if "add" in manager.tools_map:

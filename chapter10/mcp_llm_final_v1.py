@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-LLM統合MCPクライアント（完全版 V3 - 元のコード保持版）
+LLM統合MCPクライアント（完全版）
 Step 1-3の成果を統合した実用的な対話型クライアント
-
-※接続部分のみ修正、その他は元のコードの動作を完全に保持
 """
 
 import asyncio
@@ -19,7 +17,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from fastmcp import Client
-from fastmcp.client.transports import StdioTransport
 
 # Step 1-3のクラスをインポート
 from mcp_llm_step1 import ToolCollector
@@ -28,7 +25,7 @@ from mcp_llm_step2 import LLMIntegrationPrep
 load_dotenv()
 
 class CompleteLLMClient:
-    """完全なLLM統合MCPクライアント（元のコード保持版）"""
+    """完全なLLM統合MCPクライアント"""
     
     def __init__(self):
         # Step 1-3のクラスを活用
@@ -54,13 +51,10 @@ class CompleteLLMClient:
         # Step 1: ツール情報を収集
         await self.collector.collect_all_tools()
         
-        # MCPクライアントを接続（StdioTransport対応）
+        # MCPクライアントを接続
         for server_name, server_info in self.collector.servers.items():
             try:
-                command = server_info["path"][0]
-                args = server_info["path"][1:]
-                transport = StdioTransport(command=command, args=args)
-                client = Client(transport)
+                client = Client(server_info["path"])
                 await client.__aenter__()
                 self.clients[server_name] = client
             except Exception as e:
@@ -206,7 +200,7 @@ needs_tool=falseの場合:
         client = self.clients[server]
         result = await client.call_tool(tool, arguments)
         
-        # 結果を適切な形式で取得
+        # 結果を文字列に変換
         if hasattr(result, 'content'):
             if isinstance(result.content, list) and result.content:
                 first = result.content[0]
@@ -214,131 +208,130 @@ needs_tool=falseの場合:
                     return first.text
         return str(result)
     
-    async def _interpret_result(self, query: str, decision: Dict, result: Any) -> str:
-        """ツール実行結果をユーザーに分かりやすく解釈"""
+    async def _interpret_result(self, query: str, selection: Dict, result: Any) -> str:
+        """ツール実行結果を自然言語で解釈"""
         interpretation_prompt = f"""
-ユーザーの質問とツール実行結果をもとに、わかりやすい回答を作成してください。
-
 ユーザーの質問: {query}
-実行したツール: {decision['server']}.{decision['tool']}
-ツールの実行結果: {result}
+実行したツール: {selection['server']}.{selection['tool']}
+引数: {selection['arguments']}
+結果: {result}
 
-## 指示
-1. ツールの実行結果をユーザーが理解しやすいように説明してください
-2. 必要に応じて追加の解釈や説明を加えてください
-3. エラーが発生した場合は、可能であればその理由を説明してください
-4. 結果が期待と異なる場合は、その旨を伝えてください
-
-## 回答形式
-自然で親しみやすい日本語で回答してください（JSON形式は不要）。
+この結果を基に、ユーザーの質問に対して分かりやすく日本語で回答してください。
+数値は適切にフォーマットし、技術的な詳細は必要最小限にしてください。
 """
         
         response = await self.llm.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that interprets tool results for users in a clear and friendly manner."},
+                {"role": "system", "content": "あなたは親切なアシスタントです。"},
                 {"role": "user", "content": interpretation_prompt}
             ],
-            temperature=0.3
+            temperature=0.7
         )
         
-        interpreted_response = response.choices[0].message.content
-        self.conversation_history.append({"role": "assistant", "content": interpreted_response})
-        
-        return interpreted_response
+        answer = response.choices[0].message.content
+        self.conversation_history.append({"role": "assistant", "content": answer})
+        return answer
     
-    async def interactive_mode(self):
-        """対話モードの実行"""
-        print("\n" + "="*60)
-        print("🤖 LLM統合MCPクライアント V3 - 対話モード")
+    async def _generate_conversation_response(self, query: str) -> str:
+        """通常の会話応答を生成"""
+        # 会話履歴を含めて応答
+        messages = [
+            {"role": "system", "content": "あなたは親切で知識豊富なアシスタントです。"}
+        ]
+        
+        # 最近の会話履歴を追加（最大10件）
+        recent_history = self.conversation_history[-10:] if len(self.conversation_history) > 10 else self.conversation_history
+        messages.extend(recent_history)
+        
+        response = await self.llm.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.7
+        )
+        
+        answer = response.choices[0].message.content
+        self.conversation_history.append({"role": "assistant", "content": answer})
+        return answer
+    
+    async def interactive_session(self):
+        """対話型セッション"""
         print("="*60)
-        print("自然言語でMCPツールを操作できます。")
-        print("使用例: '10と20を足して', '東京の天気を教えて'")
-        print("特殊コマンド: help, status, history, quit")
-        print("="*60 + "\n")
+        print("[LLM統合MCPクライアント] 対話モード")
+        print("="*60)
+        print("[ヒント]")
+        print("  - 自然な日本語で質問してください")
+        print("  - 'help'でヘルプ表示")
+        print("  - 'tools'で利用可能なツール一覧")
+        print("  - 'history'で会話履歴")
+        print("  - 'exit'または'quit'で終了")
+        print("-"*60 + "\n")
         
         while True:
             try:
-                user_input = input("💬 あなた: ").strip()
+                # プロンプト表示
+                user_input = input("You> ").strip()
                 
-                if not user_input:
-                    continue
-                
-                # 特殊コマンドの処理
-                if user_input.lower() in ['quit', 'exit', 'q']:
-                    print("\n👋 お疲れさまでした！")
+                # 特殊コマンド処理
+                if user_input.lower() in ['exit', 'quit', '終了']:
+                    print("\n[終了] セッションを終了します")
                     break
-                elif user_input.lower() in ['help', '?']:
+                elif user_input.lower() == 'help':
                     self._show_help()
-                    continue
-                elif user_input.lower() == 'status':
-                    self._show_status()
-                    continue
-                elif user_input.lower() == 'history':
-                    self._show_history()
                     continue
                 elif user_input.lower() == 'tools':
                     self._show_available_tools()
                     continue
+                elif user_input.lower() == 'history':
+                    self._show_history()
+                    continue
+                elif not user_input:
+                    continue
                 
-                # 通常のクエリ処理
-                print("\n🔍 処理中...")
+                # クエリを処理
+                print("\n" + "="*40, flush=True)
                 response = await self.process_query(user_input)
-                print(f"\n🤖 アシスタント: {response}\n")
+                print("-"*40)
+                print(f"\nAssistant> {response}\n", flush=True)
                 
             except KeyboardInterrupt:
-                print("\n\n[STOP] ユーザーにより中断されました")
+                print("\n\n[中断] 中断されました")
                 break
             except Exception as e:
-                print(f"\n[ERROR] エラーが発生しました: {e}\n")
+                print(f"\n[エラー] {e}\n")
     
     def _show_help(self):
-        """ヘルプメッセージを表示"""
-        print("\n" + "="*50)
-        print("📖 ヘルプ")
-        print("="*50)
-        print("• 自然言語でMCPツールを操作できます")
-        print("• 例: '100と250を足して', '東京の天気を教えて'")
-        print("\n特殊コマンド:")
-        print("  help - このヘルプを表示")
-        print("  status - セッション情報を表示")
-        print("  history - 会話履歴を表示")
-        print("  tools - 利用可能なツールを表示")
-        print("  quit - プログラムを終了")
-        print("="*50 + "\n")
-    
-    def _show_status(self):
-        """セッション情報を表示"""
-        duration = datetime.now() - self.context["session_start"]
-        print("\n" + "="*50)
-        print("📊 セッション情報")
-        print("="*50)
-        print(f"起動時間: {self.context['session_start'].strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"経過時間: {str(duration).split('.')[0]}")
-        print(f"接続サーバー数: {len(self.clients)}")
-        print(f"ツール実行回数: {self.context['tool_calls']}")
-        print(f"エラー回数: {self.context['errors']}")
-        print("="*50 + "\n")
+        """ヘルプを表示"""
+        print("\n[ヘルプ]")
+        print("  計算例: '100と250を足して'")
+        print("  天気例: '東京の天気を教えて'")
+        print("  DB例: 'ユーザー一覧を表示して'")
+        print("  会話例: 'MCPについて教えて'")
+        print()
     
     def _show_history(self):
         """会話履歴を表示"""
+        print("\n[履歴] 会話履歴:")
         if not self.conversation_history:
-            print("\n📋 会話履歴はありません\n")
-            return
-        
-        print("\n" + "="*50)
-        print(f"📋 会話履歴（最新{min(len(self.conversation_history), 10)}件）")
-        print("="*50)
-        
-        for i, msg in enumerate(self.conversation_history[-10:], 1):
-            role = "あなた" if msg["role"] == "user" else "アシスタント"
-            content = msg["content"][:80] + ("..." if len(msg["content"]) > 80 else "")
-            print(f"{i:2d}. {role}: {content}")
-        
-        print("="*50 + "\n")
+            print("  （まだ会話がありません）")
+        else:
+            for i, msg in enumerate(self.conversation_history[-10:], 1):
+                role = "You" if msg["role"] == "user" else "AI"
+                content = msg["content"][:100] + "..." if len(msg["content"]) > 100 else msg["content"]
+                print(f"  {i}. {role}: {content}")
+        print()
+    
+    def show_statistics(self):
+        """統計情報を表示"""
+        duration = datetime.now() - self.context["session_start"]
+        print("\n[統計] セッション統計:")
+        print(f"  - セッション時間: {duration}")
+        print(f"  - ツール呼び出し: {self.context['tool_calls']}回")
+        print(f"  - エラー: {self.context['errors']}回")
+        print(f"  - 会話数: {len(self.conversation_history)}件")
     
     async def cleanup(self):
-        """クリーンアップ"""
+        """クリーンアップ処理"""
         for client in self.clients.values():
             try:
                 await client.__aexit__(None, None, None)
@@ -349,8 +342,8 @@ async def main():
     """メイン処理"""
     # APIキーの確認
     if not os.getenv("OPENAI_API_KEY"):
-        print("[ERROR] 環境変数 OPENAI_API_KEY を設定してください")
-        print("例: set OPENAI_API_KEY=your_api_key_here")
+        print("[エラー] 環境変数 OPENAI_API_KEY を設定してください")
+        print("   例: export OPENAI_API_KEY='your-api-key'")
         return
     
     client = CompleteLLMClient()
@@ -359,16 +352,19 @@ async def main():
         # 初期化
         await client.initialize()
         
-        # 対話モード開始
-        await client.interactive_mode()
+        # 対話型セッション
+        await client.interactive_session()
         
-    except KeyboardInterrupt:
-        print("\n[STOP] ユーザーにより中断されました")
-    except Exception as e:
-        print(f"[FATAL] 予期しないエラー: {e}")
+        # 統計表示
+        client.show_statistics()
+        
     finally:
         await client.cleanup()
-        print("[EXIT] プログラムを終了します")
+        print("\n[終了] ご利用ありがとうございました！")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\n[終了] プログラムを終了します")
+        sys.exit(0)

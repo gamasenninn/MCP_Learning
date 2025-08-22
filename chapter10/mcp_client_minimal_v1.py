@@ -1,26 +1,15 @@
 #!/usr/bin/env python3
 """
-FastMCPを使った最小限のMCPクライアント V2（StdioTransport対応版）
+FastMCPを使った最小限のMCPクライアント
 わずか20行でMCPサーバーと通信！
-
-V2の主要変更点：
-- StdioTransportを使用した接続
-- 設定可能な実行方式への対応
-- 第9章と同様の接続方式に統一
 """
 
 import asyncio
 from fastmcp import Client
-from fastmcp.client.transports import StdioTransport
 
 async def main():
-    # V2: StdioTransportを使用して接続（第9章と同じ方式）
-    # uvコマンドでcalculator_serverを実行
-    transport = StdioTransport(
-        command="uv",
-        args=["--directory", r"C:\MCP_Learning\chapter03", "run", "python", "calculator_server.py"]
-    )
-    client = Client(transport)
+    # 1行でクライアントを作成（サーバーのパスを指定）
+    client = Client(r"C:\MCP_Learning\chapter03\calculator_server.py")
     
     async with client:
         # サーバーに接続確認

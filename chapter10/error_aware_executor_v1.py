@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """
-エラー対応実行エンジン V2（依存注入修正版）
+エラー対応実行エンジン
 エラー発生時に自動的にリカバリーを試みる
-
-V2の主要変更点：
-- _resolve_dependenciesメソッドを追加
-- execute_tasks_with_recoveryで依存関係を正しく解決
-- タスク間の結果の引き渡しを修正
 """
 
 import asyncio
@@ -18,7 +13,6 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
 from dotenv import load_dotenv
-import re
 
 # Windows環境でのUnicode対応
 if sys.platform == "win32":
@@ -43,7 +37,7 @@ class ExecutionAttempt:
     timestamp: datetime = field(default_factory=datetime.now)
 
 class ErrorAwareExecutor:
-    """エラー対応機能を持つタスク実行エンジン（V2版）"""
+    """エラー対応機能を持つタスク実行エンジン"""
     
     def __init__(
         self,
@@ -77,39 +71,6 @@ class ErrorAwareExecutor:
         if not self.connection_manager._initialized:
             await self.connection_manager.initialize()
     
-    def _resolve_dependencies(self, task: UniversalTask, completed_tasks: List[UniversalTask]):
-        """タスクの依存関係を解決し、パラメータに実際の値を注入"""
-        
-        # パラメータ内の{task_N}プレースホルダーを実際の結果に置換
-        for param_key, param_value in task.params.items():
-            if isinstance(param_value, str) and "{task_" in param_value:
-                # {task_1}, {task_2} などのプレースホルダーを探す
-                placeholders = re.findall(r'\{task_(\d+)\}', param_value)
-                
-                for placeholder_num in placeholders:
-                    # task_1, task_2 などの形式でタスクIDを構成
-                    dep_task_id = f"task_{placeholder_num}"
-                    placeholder_full = f"{{task_{placeholder_num}}}"
-                    
-                    # 依存タスクを完了済みタスクから探す
-                    dep_task = None
-                    for completed_task in completed_tasks:
-                        if completed_task.id == dep_task_id and completed_task.result is not None:
-                            dep_task = completed_task
-                            break
-                    
-                    if dep_task and dep_task.result is not None:
-                        # プレースホルダーを実際の値に置換
-                        if param_value == placeholder_full:
-                            # パラメータ全体がプレースホルダーの場合、結果をそのまま設定
-                            task.params[param_key] = dep_task.result
-                        else:
-                            # プレースホルダーが文字列の一部の場合、文字列置換
-                            task.params[param_key] = param_value.replace(placeholder_full, str(dep_task.result))
-                        
-                        if self.verbose:
-                            print(f"  [依存解決] {param_key}: {placeholder_full} → {dep_task.result}")
-    
     async def execute_task(self, task: UniversalTask) -> Any:
         """単一タスクを実行"""
         if self.verbose:
@@ -120,14 +81,12 @@ class ErrorAwareExecutor:
         try:
             result = await self.connection_manager.execute_tool(task.tool, task.params)
             
-            # 結果を整形して数値として保存
+            # 結果を整形
             if hasattr(result, 'content'):
                 if hasattr(result.content[0], 'text'):
-                    task.result = float(result.content[0].text) if result.content[0].text.replace('.', '').replace('-', '').isdigit() else result.content[0].text
+                    task.result = result.content[0].text
                 else:
-                    task.result = result
-            elif hasattr(result, 'data'):
-                task.result = result.data
+                    task.result = str(result)
             else:
                 task.result = result
             
@@ -293,7 +252,7 @@ class ErrorAwareExecutor:
             await asyncio.sleep(wait_time)
         
         # パラメータエラーの場合
-        elif "parameter" in error_str or "invalid" in error_str or "validation" in error_str:
+        elif "parameter" in error_str or "invalid" in error_str:
             if self.verbose:
                 print(f"  [確認] パラメータを確認してください: {task.params}")
             # パラメータの型変換を試みる
@@ -314,32 +273,25 @@ class ErrorAwareExecutor:
             await asyncio.sleep(wait_time)
     
     async def execute_tasks_with_recovery(self, tasks: List[UniversalTask]) -> Dict[str, Any]:
-        """タスクリストをリカバリー機能付きで実行（V2: 依存関係解決対応）"""
+        """タスクリストをリカバリー機能付きで実行"""
         
         if self.verbose:
-            print(f"\n[タスク実行] {len(tasks)}個のタスクを実行（リカバリー機能付き・依存関係解決対応）")
+            print(f"\n[タスク実行] {len(tasks)}個のタスクを実行（リカバリー機能付き）")
             print("=" * 60)
         
         success_count = 0
         fail_count = 0
         recovered_count = 0
-        completed_tasks = []  # 完了したタスクのリスト
         
         for i, task in enumerate(tasks, 1):
             if self.verbose:
                 print(f"\n[{i}/{len(tasks)}] タスク: {task.name}")
-            
-            # **重要**: タスク実行前に依存関係を解決
-            self._resolve_dependencies(task, completed_tasks)
             
             # 実行履歴の初期サイズ
             initial_history_size = len(self.execution_history)
             
             # リカバリー機能付きで実行
             result = await self.execute_task_with_recovery(task)
-            
-            # 完了したタスクリストに追加（成功・失敗問わず）
-            completed_tasks.append(task)
             
             # リカバリーが発生したかチェック
             attempts_made = len(self.execution_history) - initial_history_size
@@ -376,7 +328,6 @@ class ErrorAwareExecutor:
             print(f"  失敗: {fail_count}/{len(tasks)}")
             print(f"  リカバリー: {recovered_count}件")
             print(f"  リカバリー率: {stats['recovery_rate']:.1f}%")
-            print(f"  最終結果: {final_result}")
         
         return {
             "tasks": [task.to_dict() for task in tasks],
@@ -399,7 +350,7 @@ class ErrorAwareExecutor:
         """実行レポートを生成"""
         
         report_lines = [
-            "エラー対応実行レポート V2",
+            "エラー対応実行レポート",
             "=" * 60
         ]
         
@@ -443,10 +394,10 @@ class ErrorAwareExecutor:
 
 
 # テスト関数
-async def test_error_aware_executor_v2():
-    """エラー対応実行エンジン V2のテスト"""
+async def test_error_aware_executor():
+    """エラー対応実行エンジンのテスト"""
     
-    print("エラー対応実行エンジン V2のテスト（依存関係解決）")
+    print("エラー対応実行エンジンのテスト")
     print("=" * 60)
     
     from universal_task_planner import UniversalTaskPlanner
@@ -458,22 +409,31 @@ async def test_error_aware_executor_v2():
     await planner.initialize()
     await executor.connect_all_servers()
     
-    # テストケース: 依存関係のあるタスク
-    print("\n[テスト] 依存関係解決テスト: 100+200-5*10")
-    print("-" * 50)
+    # テストケース1: パラメータエラーのあるタスク
+    print("\n[テスト1] パラメータエラーの自動修正")
+    print("-" * 40)
     
-    test_query = "100+200-5*10"
+    # わざとエラーになるタスクを作成
+    error_task = UniversalTask(
+        id="error_test",
+        name="エラーテスト",
+        tool="add",
+        server="calculator",
+        params={"a": "abc", "b": 200}  # 'abc'は数値でないためエラー
+    )
+    
+    result = await executor.execute_task_with_recovery(error_task)
+    print(f"結果: {result}")
+    
+    # テストケース2: 正常なタスクのリスト
+    print("\n[テスト2] 複数タスクの実行とリカバリー")
+    print("-" * 40)
+    
+    test_query = "100と200を足して、その結果を0で割って"  # ゼロ除算エラーを含む
     tasks = await planner.plan_task(test_query)
     
-    if tasks:
-        print(f"\n分解されたタスク: {len(tasks)}個")
-        for task in tasks:
-            print(f"  [{task.id}] {task.name} - {task.tool}({task.params})")
-        
-        result = await executor.execute_tasks_with_recovery(tasks)
-        print(f"\n最終結果: {result['final_result']} (期待値: 250)")
-    else:
-        print("タスクが分解されませんでした")
+    result = await executor.execute_tasks_with_recovery(tasks)
+    print(f"\n最終結果: {result['final_result']}")
     
     # 実行レポート
     print("\n" + "=" * 60)
@@ -484,4 +444,4 @@ async def test_error_aware_executor_v2():
 
 
 if __name__ == "__main__":
-    asyncio.run(test_error_aware_executor_v2())
+    asyncio.run(test_error_aware_executor())

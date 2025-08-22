@@ -112,6 +112,11 @@ class UniversalTaskPlanner:
 - "結果を2倍" → multiply ツールで params: {{"a": "{{task_1}}", "b": 2}}
 - "100から25を引く" → subtract ツールで params: {{"a": 100, "b": 25}}
 - "100を4で割る" → divide ツールで params: {{"a": 100, "b": 4}}
+- "商品の一覧を表示" → execute_safe_query ツールで params: {{"sql": "SELECT * FROM products"}}
+- "テーブル構造を確認" → list_tables ツールで params: {{}}
+- "商品テーブルのスキーマ" → get_table_schema ツールで params: {{"table_name": "products"}}
+- "在庫が10以下の商品" → execute_safe_query ツールで params: {{"sql": "SELECT * FROM products WHERE stock <= 10"}}
+- "売上データを表示" → execute_safe_query ツールで params: {{"sql": "SELECT * FROM sales"}}
 
 ## 出力形式（JSON）
 
@@ -145,6 +150,8 @@ class UniversalTaskPlanner:
 
 ## 判断基準
 - 計算、データ取得、ファイル操作など → ツール必要
+- テーブル構造の確認 → list_tables または get_table_schema
+- 実際のデータ取得・検索・集計 → execute_safe_query
 - 挨拶、感謝、褒め言葉、質問への簡単な回答 → ツール不要（NO_TOOL）
 """
         
