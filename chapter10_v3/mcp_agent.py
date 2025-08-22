@@ -40,7 +40,11 @@ class MCPAgent:
         
         # コンポーネント初期化
         self.connection_manager = ConnectionManager(verbose=verbose)
-        self.executor = TaskExecutor(self.connection_manager, verbose=verbose)
+        self.executor = TaskExecutor(
+            self.connection_manager, 
+            verbose=verbose, 
+            param_corrector=self._correct_parameters
+        )
         
         # LLMクライアント
         self.llm = AsyncOpenAI(
@@ -62,16 +66,29 @@ class MCPAgent:
 ## 基本能力
 あなたは知的なタスクプランナーです。以下の能力を持っています：
 
-1. **ツール理解**: 各ツールの説明から最適な使用方法を推論できます
-2. **依存関係解析**: 複数ステップが必要な場合、適切な順序を決定できます  
-3. **エラー対応**: エラーメッセージから問題を特定し、修正方法を提案できます
-4. **パラメータ推論**: ユーザーの要求から適切なパラメータ値を決定できます
+1. **ツール理解**: 各ツールの説明を読み、用途を理解して適切に選択
+2. **依存関係解析**: 複数ステップが必要な場合、適切な順序を決定
+3. **並列実行判断**: 独立したタスクは並列実行可能と判断
+4. **エラー対応**: エラーメッセージから問題を特定し、修正方法を提案
 
 ## タスク分解ルール
+- **最重要**: まず「ツールが必要かどうか」を判断する
+- 利用可能なツールの説明をよく読む
 - 1つのタスクは1つのツールを使用
 - 前のタスクの結果が必要な場合は依存関係を設定
-- パラメータには具体的な値を指定（空の辞書は禁止）
-- 複雑な要求は段階的に分解
+- 数式や複雑な計算は演算の優先順位を考慮
+- パラメータには具体的な値を指定
+
+## ツール不要の判定基準
+以下の場合は **NO_TOOL** を選択してください：
+- **挨拶**: 「こんにちは」「おはよう」「お疲れさま」等
+- **自己紹介**: 「私の名前は〇〇です」「私は〇〇と申します」等
+- **雑談**: 「今日はいい天気ですね」「お元気ですか」等
+- **感想・意見**: 「それは面白いですね」「よくできました」等
+- **単純な返答**: 「ありがとう」「わかりました」「そうですね」等
+- **質問への応答**: 相手の質問に対する単純な答え
+
+これらは人間らしい会話であり、外部ツールは不要です。
 
 ## 出力形式
 ### 複雑なタスク（複数ツール必要）
@@ -103,11 +120,12 @@ class MCPAgent:
 }
 ```
 
-### ツール不要（挨拶・質問）
+### ツール不要（日常会話）
 ```json
 {
   "type": "NO_TOOL",
-  "response": "適切な応答メッセージ"
+  "response": "適切な応答メッセージ",
+  "reason": "挨拶/自己紹介/雑談等"
 }
 ```
 """
@@ -218,18 +236,26 @@ class MCPAgent:
 ## 利用可能なツール
 {tools_info}
 
-## プロジェクト固有の指示（最優先）
+## プロジェクト固有の追加指示
 {self.custom_instructions if self.custom_instructions else "なし"}
 
-## 重要な判断基準
-- プロジェクト固有の指示があれば、それに従って判断
-- なければ、基本能力とツール説明から最適な方法を推論
-- データベース操作の場合、段階的アプローチを検討
+## 分析手順（必ず順序通りに実行）
+**手順1**: まず以下を判定してください
+- これは日常会話（挨拶・雑談・自己紹介等）ですか？
+- YES → NO_TOOL を選択
+- NO → 手順2へ
+
+**手順2**: 作業が必要な場合のみ
+1. 利用可能なツールの説明を読み、最適なツールを選択
+2. ツールの説明に従って適切なパラメータを設定
+3. 複雑なタスクは段階的に分解し、依存関係を明確にする
+4. 数式がある場合は演算の優先順位（乗除算→加減算）を考慮
+5. AGENT.mdの指示は追加のガイダンスとして活用
 
 ## ユーザーの要求
 {user_query}
 
-上記を踏まえて、適切にタスクを分解してください。JSON形式で回答してください。
+上記の手順に従って分析し、JSON形式で回答してください。
 """
         
         try:
@@ -248,6 +274,7 @@ class MCPAgent:
                     task_count = 1
                 elif result.get("type") == "NO_TOOL":
                     task_count = 0
+                    print(f"[計画] NO_TOOL選択 - 理由: {result.get('reason', '日常会話')}")
                 print(f"[計画] {task_count}個のタスクを生成")
             
             return result
@@ -284,53 +311,96 @@ class MCPAgent:
     
     async def _interpret_results(self, original_query: str, results: List) -> str:
         """
-        実行結果をユーザーに分かりやすく解釈
+        LLMを使って全ての実行結果を統合的に解釈
         
         Args:
             original_query: 元のユーザー要求
-            results: 実行結果のリスト
+            results: 全タスクの実行結果
             
         Returns:
-            解釈されたメッセージ
+            LLMが生成した自然な回答
         """
-        # 成功した結果を取得
-        successful_results = [r for r in results if r.success]
-        failed_results = [r for r in results if not r.success]
-        
-        if not successful_results and not failed_results:
-            return "実行するタスクがありませんでした。"
-        
-        if not successful_results:
-            # 全て失敗
-            error_messages = [r.error for r in failed_results if r.error]
-            return f"実行に失敗しました。エラー: {', '.join(error_messages[:2])}"
-        
-        # 最後の成功結果を基本とする
-        last_result = successful_results[-1].result
-        
-        # シンプルな結果表示
-        if isinstance(last_result, (dict, list)):
-            if isinstance(last_result, dict) and "results" in last_result:
-                # データベースクエリの結果
-                data = last_result["results"]
-                if data:
-                    row_count = len(data)
-                    if row_count <= 10:
-                        # 少量データは全表示
-                        formatted_data = self._format_table_data(data)
-                        return f"実行結果（{row_count}件）:\n{formatted_data}"
-                    else:
-                        # 大量データは概要のみ
-                        sample_data = self._format_table_data(data[:5])
-                        return f"実行結果（{row_count}件、最初の5件を表示）:\n{sample_data}\n\n... 他 {row_count - 5}件"
+        # 全結果を収集（成功・失敗両方）
+        all_results = []
+        for r in results:
+            result_info = {
+                "task_id": r.task_id,
+                "tool": r.tool,
+                "params": r.params,
+                "success": r.success
+            }
+            
+            if r.success:
+                # 成功時は結果データを抽出
+                if hasattr(r.result, 'data'):
+                    result_info["result"] = r.result.data
+                elif hasattr(r.result, 'structured_content'):
+                    result_info["result"] = r.result.structured_content
                 else:
-                    return "クエリは正常に実行されましたが、結果は空でした。"
+                    result_info["result"] = str(r.result)
             else:
-                # その他の辞書・リスト
-                return f"実行結果: {str(last_result)[:500]}{'...' if len(str(last_result)) > 500 else ''}"
-        else:
-            # プリミティブ値
-            return f"実行結果: {last_result}"
+                # 失敗時はエラー情報
+                result_info["error"] = r.error
+            
+            all_results.append(result_info)
+        
+        # 依存関係の有無を判定
+        has_dependencies = any(
+            len(getattr(r, 'dependencies', [])) > 0 for r in results
+        )
+        
+        # 結果をJSONシリアライズ可能にする
+        serializable_results = self._safe_serialize(all_results)
+        
+        # LLMに解釈を依頼
+        interpretation_prompt = f"""
+あなたは実行結果を解釈して、ユーザーに分かりやすく回答するアシスタントです。
+
+## ユーザーの元の質問
+{original_query}
+
+## 実行されたタスクと結果
+{json.dumps(serializable_results, ensure_ascii=False, indent=2)}
+
+## タスクの関係性
+{"依存関係あり（最終結果が重要）" if has_dependencies else "独立した並列タスク（全結果が重要）"}
+
+## プロジェクト固有の表示指示
+{self.custom_instructions if self.custom_instructions else "特になし"}
+
+## 回答のガイドライン
+1. ユーザーの質問に直接答える
+2. 依存関係がある場合は最終結果を中心に説明
+3. 並列タスクの場合は全ての結果を含める
+4. エラーがある場合は分かりやすく説明
+5. 技術的な詳細は省いて自然な日本語で
+6. 数値は適切にフォーマット（カンマ区切り、単位付きなど）
+
+回答を生成してください：
+"""
+        
+        try:
+            response = await self.llm.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": interpretation_prompt}],
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            # フォールバック：LLMが使えない場合
+            successful_results = [r for r in results if r.success]
+            if all(r.success for r in results):
+                # 成功時は最後の結果を簡易表示
+                if successful_results:
+                    last_result = successful_results[-1].result
+                    if hasattr(last_result, 'data'):
+                        return f"実行完了: {str(last_result.data)[:200]}"
+                return f"タスクが正常に完了しました。"
+            else:
+                failed = sum(1 for r in results if not r.success)
+                return f"一部のタスクが失敗しました（{failed}/{len(results)}件失敗）"
     
     def _format_table_data(self, data: List[Dict]) -> str:
         """テーブル形式のデータを見やすくフォーマット"""
@@ -376,6 +446,110 @@ class MCPAgent:
         # 履歴の長さ制限（最新50件）
         if len(self.conversation_history) > 50:
             self.conversation_history = self.conversation_history[-50:]
+    
+    async def _correct_parameters(self, tool: str, params: Dict[str, Any], error: str) -> Optional[Dict[str, Any]]:
+        """
+        エラーに基づいてパラメータを修正
+        
+        Args:
+            tool: エラーが発生したツール名
+            params: 元のパラメータ
+            error: エラーメッセージ
+            
+        Returns:
+            修正されたパラメータ（修正できない場合はNone）
+        """
+        try:
+            # AGENT.mdのエラー対処指示を含む修正プロンプト
+            correction_prompt = f"""
+エラーが発生したため、パラメータの修正が必要です。
+
+## エラー情報
+ツール: {tool}
+現在のパラメータ: {json.dumps(params, ensure_ascii=False)}
+エラーメッセージ: {error}
+
+## プロジェクト固有のエラー対処指示
+{self.custom_instructions if self.custom_instructions else "なし"}
+
+## 一般的なエラー対処パターン
+- 404エラー（Not Found）→ パラメータの値を確認
+- 天気API: "New York,JP" → "New York,US"
+- データベース: "no such column" → 正しいカラム名に修正
+- 計算ツール: 文字列 → 数値に変更
+
+## 指示
+上記のエラーメッセージを分析し、パラメータを修正してください。
+修正後のパラメータのみをJSON形式で返してください。
+修正が不可能な場合は、元のパラメータをそのまま返してください。
+
+例:
+{{"location": "Tokyo,JP", "units": "metric"}}
+"""
+            
+            response = await self.llm.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": correction_prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.1
+            )
+            
+            corrected_params = json.loads(response.choices[0].message.content)
+            
+            # 元のパラメータと同じ場合は修正なし
+            if corrected_params == params:
+                return None
+                
+            if self.verbose:
+                print(f"  [パラメータ修正] {params} → {corrected_params}")
+                
+            return corrected_params
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"  [修正エラー] パラメータ修正に失敗: {e}")
+            return None
+    
+    def _safe_serialize(self, obj) -> Any:
+        """
+        オブジェクトをJSONシリアライズ可能な形式に変換
+        
+        Args:
+            obj: 変換するオブジェクト
+            
+        Returns:
+            JSONシリアライズ可能なオブジェクト
+        """
+        if obj is None:
+            return None
+        elif isinstance(obj, (str, int, float, bool)):
+            return obj
+        elif isinstance(obj, (list, tuple)):
+            return [self._safe_serialize(item) for item in obj]
+        elif isinstance(obj, dict):
+            return {key: self._safe_serialize(value) for key, value in obj.items()}
+        elif hasattr(obj, '__dict__'):
+            # オブジェクトの属性を辞書として取得
+            return {
+                key: self._safe_serialize(value) 
+                for key, value in obj.__dict__.items()
+                if not key.startswith('_')  # プライベート属性は除外
+            }
+        elif hasattr(obj, 'dict') and callable(getattr(obj, 'dict')):
+            # Pydanticモデルなどのdict()メソッドを持つオブジェクト
+            try:
+                return self._safe_serialize(obj.dict())
+            except:
+                return str(obj)
+        elif hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
+            # to_dict()メソッドを持つオブジェクト
+            try:
+                return self._safe_serialize(obj.to_dict())
+            except:
+                return str(obj)
+        else:
+            # その他は文字列化
+            return str(obj)
     
     def get_session_stats(self) -> Dict:
         """セッション統計を取得"""
