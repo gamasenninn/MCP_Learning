@@ -49,15 +49,17 @@ class TaskExecutor:
     基本的な実行とリトライに専念
     """
     
-    def __init__(self, connection_manager, verbose: bool = True):
+    def __init__(self, connection_manager, verbose: bool = True, param_corrector=None):
         """
         Args:
             connection_manager: ConnectionManagerのインスタンス
             verbose: 詳細ログ出力
+            param_corrector: パラメータ修正を行うコールバック関数
         """
         self.connection_manager = connection_manager
         self.verbose = verbose
         self.execution_history: List[TaskResult] = []
+        self.param_corrector = param_corrector
     
     async def execute_single(self, task: Task, max_retry: int = 3) -> TaskResult:
         """
@@ -112,15 +114,46 @@ class TaskExecutor:
                 last_error = str(e)
                 retry_count = attempt
                 
+                # エラーの種類を判別
+                error_type = self._classify_error(str(e))
+                
                 if self.verbose:
                     if attempt < max_retry:
                         print(f"  [リトライ {attempt + 1}/{max_retry}] エラー: {last_error}")
                     else:
                         print(f"  [失敗] 最大リトライ回数に到達: {last_error}")
                 
+                # パラメータエラーの場合、修正を試みる
+                if error_type == "PARAM_ERROR" and self.param_corrector and attempt < max_retry:
+                    if self.verbose:
+                        print(f"  [分析] パラメータエラーの可能性 - 修正を試行")
+                    
+                    try:
+                        corrected_params = await self.param_corrector(
+                            task.tool, 
+                            task.params, 
+                            str(e)
+                        )
+                        
+                        if corrected_params and corrected_params != task.params:
+                            if self.verbose:
+                                print(f"  [修正] パラメータを修正: {corrected_params}")
+                            task.params = corrected_params
+                            # 修正後、残りの試行を1回に制限（無限ループ防止）
+                            max_retry = min(max_retry, attempt + 2)
+                        else:
+                            if self.verbose:
+                                print(f"  [修正] パラメータ修正に失敗")
+                    except Exception as correction_error:
+                        if self.verbose:
+                            print(f"  [修正エラー] {correction_error}")
+                
                 # 最後の試行でなければ少し待つ
                 if attempt < max_retry:
-                    await asyncio.sleep(0.5)
+                    if error_type == "TRANSIENT_ERROR":
+                        await asyncio.sleep(0.5)  # 一時的エラーは短時間待機
+                    else:
+                        await asyncio.sleep(0.1)  # その他は短時間待機
         
         # 失敗
         execution_time = asyncio.get_event_loop().time() - start_time
@@ -245,7 +278,8 @@ class TaskExecutor:
                 if task_ref in executed_tasks:
                     task_result = executed_tasks[task_ref]
                     if task_result.success:
-                        resolved[key] = task_result.result
+                        # CallToolResultから実際の値を抽出
+                        resolved[key] = self._extract_actual_value(task_result.result)
                     else:
                         resolved[key] = None
                 else:
@@ -254,6 +288,89 @@ class TaskExecutor:
                 resolved[key] = value
         
         return resolved
+    
+    def _extract_actual_value(self, result) -> Any:
+        """
+        CallToolResultから実際の値を抽出
+        
+        Args:
+            result: ツールの実行結果（CallToolResult等）
+            
+        Returns:
+            実際の値
+        """
+        # CallToolResultオブジェクトの場合
+        if hasattr(result, 'data') and result.data is not None:
+            # FastMCP形式: dataフィールドに実際の値
+            return result.data
+        elif hasattr(result, 'structured_content') and result.structured_content:
+            # 構造化コンテンツから値を取得
+            content = result.structured_content
+            if isinstance(content, dict):
+                # 'result' キーがあればそれを使用
+                if 'result' in content:
+                    return content['result']
+                # 'results' キーがあれば（データベース結果等）
+                elif 'results' in content:
+                    return content
+                # その他のキーがある場合は最初の値
+                elif content:
+                    return list(content.values())[0]
+            return content
+        elif hasattr(result, 'content') and result.content:
+            # コンテンツから値を抽出
+            content = result.content
+            if isinstance(content, list) and len(content) > 0:
+                first_content = content[0]
+                if hasattr(first_content, 'text'):
+                    text = first_content.text
+                    # 数値への変換を試みる
+                    try:
+                        # 整数
+                        if text.isdigit() or (text.startswith('-') and text[1:].isdigit()):
+                            return int(text)
+                        # 浮動小数点数
+                        return float(text)
+                    except:
+                        return text
+                return first_content
+            return content
+        else:
+            # プリミティブ値やその他の場合
+            return result
+    
+    def _classify_error(self, error_msg: str) -> str:
+        """
+        エラーメッセージを分類
+        
+        Args:
+            error_msg: エラーメッセージ
+            
+        Returns:
+            エラーの分類 (PARAM_ERROR, TRANSIENT_ERROR, UNKNOWN)
+        """
+        error_lower = error_msg.lower()
+        
+        # パラメータエラー（修正が必要）
+        param_error_indicators = [
+            '404', 'not found', 'invalid parameter', '400', 'bad request',
+            'parameter', 'argument', 'invalid input', 'validation error',
+            'no such column', 'no such table', 'syntax error'
+        ]
+        
+        if any(indicator in error_lower for indicator in param_error_indicators):
+            return "PARAM_ERROR"
+        
+        # 一時的エラー（リトライで解決可能）
+        transient_error_indicators = [
+            'timeout', 'connection', '503', '500', '502', '504',
+            'network', 'temporary', 'unavailable', 'retry'
+        ]
+        
+        if any(indicator in error_lower for indicator in transient_error_indicators):
+            return "TRANSIENT_ERROR"
+        
+        return "UNKNOWN"
     
     def _print_execution_stats(self, results: List[TaskResult]):
         """実行統計を表示"""

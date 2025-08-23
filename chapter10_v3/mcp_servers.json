@@ -34,7 +34,7 @@
     },
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\MCP_Learning\\chapter10"],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\MCP_Learning\\chapter10_v3"],
       "meta": {
         "description": "ファイルシステム操作",
         "chapter": "第1章"

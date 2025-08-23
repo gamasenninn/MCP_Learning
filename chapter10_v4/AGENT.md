@@ -68,7 +68,7 @@
 
 ### 天気API（get_weather）
 - **404エラー（Not Found）**: 都市名が存在しない
-  - `"New York,JP"` → `"New York,US"`
+  - `"New York"` → `"New York,US"`
   - `"東京"` → `"Tokyo,JP"`
   - `"大阪"` → `"Osaka,JP"`
 
