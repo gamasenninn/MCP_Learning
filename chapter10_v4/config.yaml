@@ -3,6 +3,11 @@
 
 # 表示設定
 display:
+  # UIモード: basic, rich
+  # basic: 従来のシンプルなprint文ベース
+  # rich: richライブラリを使った美しいUI（要pip install rich）
+  ui_mode: "rich"
+  
   # タスクリストのスタイル: checkbox, simple, verbose
   style: "checkbox"
   
@@ -17,6 +22,20 @@ display:
   
   # 色付き表示（Windows環境では無効化）
   use_colors: false
+  
+  # Rich UI特有の設定
+  rich_options:
+    # ライブ更新を使用するかどうか
+    enable_live_updates: true
+    
+    # 進捗バーを表示するかどうか
+    enable_progress_bar: true
+    
+    # パネル表示を使用するかどうか
+    enable_panels: true
+    
+    # マークダウン表示を使用するかどうか
+    enable_markdown: true
 
 # 実行設定
 execution:

@@ -8,4 +8,5 @@ dependencies = [
     "bs4>=0.0.2",
     "fastmcp>=2.11.3",
     "openai>=1.99.9",
+    "rich>=14.1.0",
 ]

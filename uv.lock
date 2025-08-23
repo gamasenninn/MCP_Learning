@@ -558,6 +558,7 @@ dependencies = [
     { name = "bs4" },
     { name = "fastmcp" },
     { name = "openai" },
+    { name = "rich" },
 ]
 
 [package.metadata]
@@ -565,6 +566,7 @@ requires-dist = [
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "fastmcp", specifier = ">=2.11.3" },
     { name = "openai", specifier = ">=1.99.9" },
+    { name = "rich", specifier = ">=14.1.0" },
 ]
 
 [[package]]

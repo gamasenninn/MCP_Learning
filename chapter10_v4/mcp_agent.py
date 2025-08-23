@@ -22,6 +22,13 @@ from openai import AsyncOpenAI
 from connection_manager import ConnectionManager
 from display_manager import DisplayManager
 
+# Rich UI support
+try:
+    from display_manager_rich import RichDisplayManager
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+
 
 class MCPAgentV4:
     """
@@ -41,10 +48,24 @@ class MCPAgentV4:
     def __init__(self, config_path: str = "config.yaml"):
         """初期化"""
         self.config = self._load_config(config_path)
-        self.display = DisplayManager(
-            show_timing=self.config["display"]["show_timing"],
-            show_thinking=self.config["display"]["show_thinking"]
-        )
+        
+        # UI モードに基づいて適切なDisplayManagerを選択
+        ui_mode = self.config.get("display", {}).get("ui_mode", "basic")
+        
+        if ui_mode == "rich" and RICH_AVAILABLE:
+            self.display = RichDisplayManager(
+                show_timing=self.config["display"]["show_timing"],
+                show_thinking=self.config["display"]["show_thinking"]
+            )
+            self.ui_mode = "rich"
+        else:
+            if ui_mode == "rich" and not RICH_AVAILABLE:
+                print("[WARNING] Rich UI requested but rich library not available. Using basic UI.")
+            self.display = DisplayManager(
+                show_timing=self.config["display"]["show_timing"],
+                show_thinking=self.config["display"]["show_thinking"]
+            )
+            self.ui_mode = "basic"
         
         # LLMクライアント
         self.llm = AsyncOpenAI()
@@ -70,6 +91,10 @@ class MCPAgentV4:
         
         if self.config["development"]["verbose"]:
             self.display.show_banner()
+            if self.ui_mode == "rich":
+                print(f"[INFO] Rich UI mode enabled")
+            else:
+                print(f"[INFO] Basic UI mode enabled")
     
     def _load_config(self, config_path: str) -> Dict:
         """設定ファイルを読み込み"""
@@ -203,7 +228,7 @@ class MCPAgentV4:
 ## 出力形式
 NO_TOOLの場合：
 ```json
-{{"type": "NO_TOOL", "response": "適切な応答メッセージ", "reason": "判定理由"}}
+{{"type": "NO_TOOL", "response": "**Markdown形式**で適切な応答メッセージ", "reason": "判定理由"}}
 ```
 
 その他の場合：
@@ -239,7 +264,10 @@ NO_TOOLの場合：
             return await self._execute_fallback_dialogue(user_query)
         
         # チェックリストを表示
-        self.display.show_checklist(task_list)
+        if self.ui_mode == "rich" and self.config.get("display", {}).get("rich_options", {}).get("enable_live_updates", True):
+            self.display.show_checklist(task_list)
+        else:
+            self.display.show_checklist(task_list)
         
         # 実行結果を追跡
         completed = []
@@ -248,8 +276,11 @@ NO_TOOLの場合：
         
         # タスクを順次実行
         for i, task in enumerate(task_list):
-            # 進行状況更新
-            self.display.update_checklist(task_list, current=i, completed=completed, failed=failed)
+            # 進行状況更新（Rich UIの場合はライブ更新）
+            if self.ui_mode == "rich" and hasattr(self.display, 'update_checklist_live'):
+                self.display.update_checklist_live(task_list, current=i, completed=completed, failed=failed)
+            else:
+                self.display.update_checklist(task_list, current=i, completed=completed, failed=failed)
             
             try:
                 # タスク実行
@@ -268,7 +299,10 @@ NO_TOOLの場合：
                 print(f"[エラー] タスク{i+1}実行失敗: {e}")
         
         # 最終状況表示
-        self.display.update_checklist(task_list, current=-1, completed=completed, failed=failed)
+        if self.ui_mode == "rich" and hasattr(self.display, 'update_checklist_live'):
+            self.display.update_checklist_live(task_list, current=-1, completed=completed, failed=failed)
+        else:
+            self.display.update_checklist(task_list, current=-1, completed=completed, failed=failed)
         
         # 結果をLLMで解釈
         return await self._interpret_planned_results(user_query, execution_context)
@@ -357,7 +391,10 @@ NO_TOOLの場合：
             return "タスクリストの生成に失敗しました。"
         
         # チェックリストを表示
-        self.display.show_checklist(task_list)
+        if self.ui_mode == "rich" and self.config.get("display", {}).get("rich_options", {}).get("enable_live_updates", True):
+            self.display.show_checklist(task_list)
+        else:
+            self.display.show_checklist(task_list)
         
         # 実行結果を追跡
         completed = []
@@ -366,8 +403,11 @@ NO_TOOLの場合：
         
         # タスクを順次実行
         for i, task in enumerate(task_list):
-            # 進行状況更新
-            self.display.update_checklist(task_list, current=i, completed=completed, failed=failed)
+            # 進行状況更新（Rich UIの場合はライブ更新）
+            if self.ui_mode == "rich" and hasattr(self.display, 'update_checklist_live'):
+                self.display.update_checklist_live(task_list, current=i, completed=completed, failed=failed)
+            else:
+                self.display.update_checklist(task_list, current=i, completed=completed, failed=failed)
             
             try:
                 # タスク実行
@@ -386,7 +426,10 @@ NO_TOOLの場合：
                 print(f"[エラー] タスク{i+1}実行失敗: {e}")
         
         # 最終状況表示
-        self.display.update_checklist(task_list, current=-1, completed=completed, failed=failed)
+        if self.ui_mode == "rich" and hasattr(self.display, 'update_checklist_live'):
+            self.display.update_checklist_live(task_list, current=-1, completed=completed, failed=failed)
+        else:
+            self.display.update_checklist(task_list, current=-1, completed=completed, failed=failed)
         
         # 結果をLLMで解釈
         return await self._interpret_planned_results(user_query, execution_context)
@@ -445,7 +488,7 @@ NO_TOOLの場合：
 ## 出力形式
 ### 日常会話の場合
 ```json
-{{"type": "NO_TOOL", "response": "適切な応答"}}
+{{"type": "NO_TOOL", "response": "**Markdown形式**で適切な応答"}}
 ```
 
 ### ツール実行の場合
@@ -455,7 +498,7 @@ NO_TOOLの場合：
 
 ### 完了の場合  
 ```json
-{{"type": "COMPLETE", "response": "最終的な回答"}}
+{{"type": "COMPLETE", "response": "**Markdown形式**で最終的な回答"}}
 ```
 
 現在のステップ: {step}"""
@@ -878,7 +921,24 @@ NO_TOOLの場合：
 {self.custom_instructions if self.custom_instructions else "特になし"}
 
 ユーザーの質問に直接答え、成功したタスクの結果を統合して自然な回答を生成してください。
-失敗したタスクがある場合は、その影響を考慮した回答にしてください。"""
+失敗したタスクがある場合は、その影響を考慮した回答にしてください。
+
+## 出力形式
+回答は**Markdown形式**で整理して出力してください：
+- 見出しは `### タイトル`
+- 重要な情報は `**太字**`
+- リストは `-` または `1.` 
+- コードや値は `code`
+- 実行結果は `> 結果`
+- 長い結果は適切に改行・整理
+
+例：
+### 実行結果
+計算が完了しました：
+- **100 + 200** = `300`
+- 実行時間: `0.5秒`
+
+> すべての計算が正常に完了しました。"""
 
         try:
             response = await self.llm.chat.completions.create(
@@ -890,6 +950,12 @@ NO_TOOLの場合：
             # 最終応答を取得
             final_response = response.choices[0].message.content
             
+            # Rich UIの場合は美しく表示
+            if self.ui_mode == "rich" and hasattr(self.display, 'show_result_panel'):
+                # JSONまたは長いテキストかどうか判定
+                if len(final_response) > 100 or final_response.strip().startswith('{'):
+                    self.display.show_result_panel("実行結果", final_response, success=True)
+                
             # 実行結果と共に履歴に保存
             self._add_to_history("assistant", final_response, serializable_results)
             
@@ -992,7 +1058,10 @@ async def main():
         print("-" * 60)
         
         while True:
-            user_input = input("\nAgent> ").strip()
+            if hasattr(agent.display, 'input_prompt') and agent.ui_mode == "rich":
+                user_input = agent.display.input_prompt("Agent").strip()
+            else:
+                user_input = input("\nAgent> ").strip()
             
             if user_input.lower() in ['quit', 'exit', '終了']:
                 break
@@ -1002,7 +1071,12 @@ async def main():
             
             # リクエスト処理
             response = await agent.process_request(user_input)
-            print(f"\n{response}")
+            
+            # Rich UIの場合はMarkdown整形表示
+            if agent.ui_mode == "rich" and hasattr(agent.display, 'show_markdown_result'):
+                agent.display.show_markdown_result(response)
+            else:
+                print(f"\n{response}")
     
     except KeyboardInterrupt:
         print("\n\n[中断] Ctrl+Cが押されました。")
