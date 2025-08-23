@@ -10,10 +10,18 @@
   2. `get_table_schema` - 対象テーブルのスキーマ確認
   3. `execute_safe_query` - 実際のクエリ実行
 
-### 2. ユーザー意図の解釈
+### 2. ファイル操作のルール
+- **ファイル読み込み**: `read_file`ツールを使用してテキストファイルの内容を取得
+- **ファイル書き込み**: `write_file`ツールを使用してファイルに内容を保存
+- **ディレクトリ一覧**: `list_directory`ツールを使用してフォルダの中身を確認
+
+### 3. ユーザー意図の解釈
 - **「一覧」「表示」「見る」「取得」** → 実際のデータ取得が必要
 - **「構造」「スキーマ」「テーブル情報」** → メタ情報の確認のみ
 - **「テーブル一覧」** → list_tablesのみ実行
+- **「ファイルを読む」「.txtの内容」「ファイルを開く」** → read_fileツール使用
+- **「ファイルに書く」「保存する」「書き込む」** → write_fileツール使用
+- **「フォルダの中身」「ディレクトリ一覧」「ファイル一覧」** → list_directoryツール使用
 
 ### 3. エラー対処の指針
 - **"no such column" エラー** → get_table_schemaでカラム名を確認してから再実行
@@ -46,6 +54,24 @@
   2. 100+200を計算
   3. 最後に両者を加算
 - 「フィボナッチ数列10個」→ 数列生成ツールを使用
+
+### ファイル操作関連
+```
+「fibonacci_sequence.txtを読んで」
+→ filesystem: read_file(path="fibonacci_sequence.txt")
+
+「README.mdの内容を表示」
+→ filesystem: read_file(path="README.md")
+
+「現在のディレクトリの内容を見る」
+→ filesystem: list_directory(path=".")
+
+「sample.txtに内容を書き込む」
+→ filesystem: write_file(path="sample.txt", content="内容")
+
+「numbered_list.mdファイルの中身」
+→ filesystem: read_file(path="numbered_list.md")
+```
 
 ## プロジェクト固有の設定
 
@@ -92,6 +118,15 @@
   - 自動的にリトライされる（修正不要）
 - **500/503エラー**: サーバー側の問題
   - 自動的にリトライされる（修正不要）
+
+### ファイルシステムエラー
+- **"File not found"エラー**: ファイルが存在しない
+  - `list_directory`で存在確認してからread_file
+- **"Permission denied"エラー**: アクセス権限なし
+  - 別のパスを試すか、ユーザーに確認
+- **パスエラー**: 相対パス/絶対パスの問題
+  - 相対パス: `"./file.txt"` または `"file.txt"`
+  - 絶対パス: `"C:\\MCP_Learning\\chapter10\\file.txt"`
 
 ## 重要な注意事項
 
