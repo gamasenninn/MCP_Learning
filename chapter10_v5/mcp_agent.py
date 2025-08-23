@@ -21,6 +21,7 @@ from openai import AsyncOpenAI
 
 from connection_manager import ConnectionManager
 from display_manager import DisplayManager
+from error_handler import ErrorHandler
 
 # Rich UI support
 try:
@@ -72,6 +73,13 @@ class MCPAgentV4:
         
         # MCP接続管理（V3から流用）
         self.connection_manager = ConnectionManager()
+        
+        # エラー処理司令塔（V4新機能）
+        self.error_handler = ErrorHandler(
+            config=self.config,
+            llm=self.llm,
+            verbose=self.config.get("development", {}).get("verbose", True)
+        )
         
         # 会話履歴（V3から継承）
         self.conversation_history: List[Dict] = []
@@ -535,176 +543,22 @@ NO_TOOLの場合：
     
     async def _execute_tool_with_retry(self, tool: str, params: Dict) -> Any:
         """
-        ツールをリトライ付きで実行（V4の知的エラー処理）
+        ツールをリトライ付きで実行（ErrorHandler統一版）
         """
-        max_retries = self.config["execution"]["max_retries"]
-        original_params = params.copy()  # 元のパラメータを保持
+        async def execute_func(tool_name: str, tool_params: Dict) -> Any:
+            return await self.connection_manager.call_tool(tool_name, tool_params)
         
-        for attempt in range(max_retries + 1):
-            try:
-                result = await self.connection_manager.call_tool(tool, params)
-                
-                # 成功時のログ
-                if attempt > 0 and self.config["development"]["verbose"]:
-                    print(f"  [成功] {attempt}回目のリトライで成功しました")
-                
-                return result
-                
-            except Exception as e:
-                error_msg = str(e)
-                error_type = self._classify_error(error_msg)
-                
-                if self.config["development"]["verbose"]:
-                    print(f"  [エラー分類] {error_type}: {error_msg}")
-                
-                # 最後の試行の場合は例外を投げる
-                if attempt >= max_retries:
-                    if self.config["development"]["verbose"]:
-                        print(f"  [失敗] 最大リトライ回数({max_retries})に到達")
-                    raise e
-                
-                # エラータイプに応じた処理
-                if error_type == "PARAM_ERROR":
-                    # パラメータエラーの場合、LLMで修正を試みる
-                    if self.config.get("error_handling", {}).get("auto_correct_params", True):
-                        if self.config["development"]["verbose"]:
-                            print(f"  [分析] パラメータエラーを検出 - LLMで修正を試みます")
-                        
-                        corrected_params = await self._fix_params_with_llm(tool, params, error_msg)
-                        
-                        if corrected_params and corrected_params != params:
-                            params = corrected_params
-                            if self.config["development"]["verbose"]:
-                                print(f"  [修正] パラメータを修正しました: {params}")
-                            # パラメータ修正後は残り試行回数を制限（無限ループ防止）
-                            max_retries = min(max_retries, attempt + 2)
-                        else:
-                            if self.config["development"]["verbose"]:
-                                print(f"  [修正失敗] パラメータの自動修正に失敗")
-                            # 修正できない場合は即座に失敗
-                            raise e
-                    else:
-                        # 自動修正が無効の場合は即座に失敗
-                        raise e
-                
-                elif error_type == "TRANSIENT_ERROR":
-                    # 一時的エラーの場合は通常のリトライ
-                    if self.config["development"]["verbose"]:
-                        print(f"  [リトライ] 一時的エラー - {attempt + 1}/{max_retries}")
-                    self.display.show_retry(attempt + 1, max_retries, tool)
-                    await asyncio.sleep(self.config.get("error_handling", {}).get("retry_interval", 1.0))
-                
-                else:
-                    # 不明なエラーの場合は短時間リトライ
-                    if self.config["development"]["verbose"]:
-                        print(f"  [リトライ] 不明なエラー - {attempt + 1}/{max_retries}")
-                    self.display.show_retry(attempt + 1, max_retries, tool)
-                    await asyncio.sleep(0.5)
+        def get_tools_info() -> str:
+            return self.connection_manager.format_tools_for_llm()
+        
+        return await self.error_handler.execute_with_retry(
+            tool=tool,
+            params=params,
+            execute_func=execute_func,
+            tools_info_func=get_tools_info
+        )
     
-    def _classify_error(self, error_msg: str) -> str:
-        """
-        エラーメッセージを分類（V3から移植）
-        
-        Args:
-            error_msg: エラーメッセージ
-            
-        Returns:
-            エラーの分類 (PARAM_ERROR, TRANSIENT_ERROR, UNKNOWN)
-        """
-        error_lower = error_msg.lower()
-        
-        # パラメータエラー（修正が必要）
-        param_error_indicators = [
-            '404', 'not found', 'invalid parameter', '400', 'bad request',
-            'parameter', 'argument', 'invalid input', 'validation error',
-            'no such column', 'no such table', 'syntax error'
-        ]
-        
-        if any(indicator in error_lower for indicator in param_error_indicators):
-            return "PARAM_ERROR"
-        
-        # 一時的エラー（リトライで解決可能）
-        transient_error_indicators = [
-            'timeout', 'connection', '503', '500', '502', '504',
-            'network', 'temporary', 'unavailable', 'retry'
-        ]
-        
-        if any(indicator in error_lower for indicator in transient_error_indicators):
-            return "TRANSIENT_ERROR"
-        
-        return "UNKNOWN"
     
-    async def _fix_params_with_llm(self, tool: str, params: Dict, error_msg: str) -> Dict:
-        """
-        LLMを使ってパラメータを修正（V4の新機能）
-        
-        Args:
-            tool: ツール名
-            params: 元のパラメータ
-            error_msg: エラーメッセージ
-            
-        Returns:
-            修正されたパラメータ（修正できない場合はNone）
-        """
-        try:
-            # 利用可能なツール情報を取得
-            tools_info = self.connection_manager.format_tools_for_llm()
-            
-            prompt = f"""ツール実行時にエラーが発生しました。パラメータを修正してください。
-
-## エラー情報
-ツール: {tool}
-エラーメッセージ: {error_msg}
-現在のパラメータ: {json.dumps(params, ensure_ascii=False)}
-
-## 利用可能なツール定義
-{tools_info}
-
-## 修正指針
-1. エラーメッセージを分析してパラメータの問題を特定
-2. ツール定義を確認して正しいパラメータ形式を理解
-3. 一般的な修正パターン：
-   - 日本語パラメータ → 英語に変換（例：「北京」→「Beijing」）
-   - テーブル・カラム名の修正
-   - 型変換（文字列 ↔ 数値）
-   - 必須パラメータの追加
-
-## 出力形式
-修正可能な場合：
-```json
-{{"修正成功": true, "params": {{修正されたパラメータ}}}}
-```
-
-修正不可能な場合：
-```json
-{{"修正成功": false, "理由": "修正できない理由"}}
-```"""
-
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1  # 低温度で安定した修正
-            )
-            
-            response_text = response.choices[0].message.content
-            
-            # JSONブロックを抽出
-            import re
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group(1))
-                if result.get("修正成功"):
-                    return result.get("params")
-            
-            if self.config["development"]["verbose"]:
-                print(f"[修正] LLM応答の解析に失敗: {response_text[:100]}...")
-            
-            return None
-            
-        except Exception as e:
-            if self.config["development"]["verbose"]:
-                print(f"[修正エラー] パラメータ修正に失敗: {e}")
-            return None
     
     def _format_execution_context(self, context: List[Dict]) -> str:
         """実行コンテキストを文字列にフォーマット"""
