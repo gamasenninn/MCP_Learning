@@ -220,6 +220,19 @@ class ConnectionManager:
             # ツール実行
             result = await client.call_tool(tool_name, arguments)
             
+            # FastMCP CallToolResult オブジェクトの内容をサロゲート文字クリーンアップ
+            if hasattr(result, 'content') and hasattr(result.content, '__iter__'):
+                for content_item in result.content:
+                    if hasattr(content_item, 'text') and isinstance(content_item.text, str):
+                        # サロゲート文字をクリーンアップ
+                        surrogate_count = sum(1 for char in content_item.text if 0xD800 <= ord(char) <= 0xDFFF)
+                        if surrogate_count > 0:
+                            clean_text = ''.join(
+                                char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+                                for char in content_item.text
+                            )
+                            content_item.text = clean_text
+            
             # Windows環境での文字列処理（絵文字のみ置換）
             if sys.platform == "win32" and isinstance(result, str):
                 try:
@@ -237,6 +250,23 @@ class ConnectionManager:
                             # エンコードできない文字のみ ? に置換
                             safe_result.append('?')
                     result = ''.join(safe_result)
+            
+            # 最終的な結果もサロゲート文字をクリーンアップ
+            if isinstance(result, str):
+                # デバッグ：サロゲート文字をチェック
+                surrogate_count = sum(1 for char in result if 0xD800 <= ord(char) <= 0xDFFF)
+                if surrogate_count > 0:
+                    print(f"[connection_manager] Found {surrogate_count} surrogate characters in result")
+                    # 最初のサロゲート文字の位置を表示
+                    for i, char in enumerate(result):
+                        if 0xD800 <= ord(char) <= 0xDFFF:
+                            print(f"[connection_manager] First surrogate at position {i}: {repr(char)} (U+{ord(char):04X})")
+                            break
+                
+                result = ''.join(
+                    char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+                    for char in result
+                )
             
             return result
             

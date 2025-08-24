@@ -12,9 +12,50 @@ import sys
 import tempfile
 import os
 import ast
+import unicodedata
 from string import Template
 
 mcp = FastMCP("Universal Tools Server")
+
+# === サロゲート文字統一処理 ===
+
+def scrub_surrogates(s: str, mode: str = "replace") -> str:
+    """
+    Surrogate code points (U+D800–DFFF) を統一的に無害化
+    
+    Args:
+        s: 処理対象の文字列
+        mode: 処理モード ("ignore"|"replace"|"escape")
+    
+    Returns:
+        サロゲート文字が無害化された文字列
+    """
+    if not isinstance(s, str):
+        s = str(s)
+    
+    # まず正規化（NFC推奨）
+    try:
+        s = unicodedata.normalize("NFC", s)
+    except Exception:
+        pass
+    
+    out = []
+    for ch in s:
+        cp = ord(ch)
+        if 0xD800 <= cp <= 0xDFFF:
+            if mode == "ignore":
+                continue
+            elif mode == "escape":
+                out.append(f"\\u{cp:04X}")  # 見える形にエスケープ
+            else:  # "replace" 既定
+                out.append("?")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+def get_surrogate_policy() -> str:
+    """環境変数からサロゲート処理ポリシーを取得"""
+    return os.environ.get("SURROGATE_POLICY", "replace")
 
 # === Stage 1: Web機能 ===
 
@@ -333,6 +374,15 @@ try:
 except:
     pass  # Windowsでは無視
 
+# サロゲート文字クリーンアップ関数
+def scrub_surrogates_worker(s):
+    if not isinstance(s, str):
+        s = str(s)
+    return ''.join(
+        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+        for char in s
+    )
+
 # 安全な環境を構築
 ALLOWED_MODULES = set($ALLOWED_MODULES)
 SAFE_BUILTINS = {name: getattr(builtins, name) 
@@ -343,10 +393,12 @@ def safe_import(name, *args, **kwargs):
         raise ImportError(f"モジュール '{name}' は許可されていません")
     return __import__(name, *args, **kwargs)
 
-# ユーザーコードを実行
+# ユーザーコードを実行（サロゲート文字対策）
+user_code = sys.stdin.read()
+clean_user_code = scrub_surrogates_worker(user_code)
 safe_builtins = dict(SAFE_BUILTINS)
 safe_builtins['__import__'] = safe_import
-exec(sys.stdin.read(), {'__builtins__': safe_builtins}, None)
+exec(clean_user_code, {'__builtins__': safe_builtins}, None)
 """)
 
 @mcp.tool()
@@ -368,8 +420,28 @@ def execute_python(code: str) -> str:
     Returns:
         実行結果またはエラーメッセージ（文字列）
     """
+    # ★入口：AST解析前に統一ポリシーでコードを無害化
+    policy = get_surrogate_policy()
+    code = scrub_surrogates(code, policy)
+    
     # 自動print()追加
     enhanced_code = add_print_if_needed(code)
+    
+    # enhanced_codeも無害化（add_print_if_neededの後に）
+    enhanced_code = scrub_surrogates(enhanced_code, policy)
+    
+    # デバッグ：各段階でサロゲート文字をチェック
+    def debug_surrogates(text, label):
+        surrogate_count = sum(1 for char in text if 0xD800 <= ord(char) <= 0xDFFF)
+        if surrogate_count > 0:
+            print(f"[DEBUG {label}] {surrogate_count} surrogates found")
+            for i, char in enumerate(text):
+                if 0xD800 <= ord(char) <= 0xDFFF:
+                    print(f"  Position {i}: {repr(char)} (U+{ord(char):04X})")
+                    break
+    
+    debug_surrogates(code, "原始code")
+    debug_surrogates(enhanced_code, "enhanced_code")
     
     # 1. 静的解析でコードをチェック
     is_safe, msg = check_code_safety(enhanced_code)
@@ -388,48 +460,51 @@ def execute_python(code: str) -> str:
         # 3. 隔離された環境で実行
         # 環境変数でPythonのエンコーディングを指定（日本語対応）
         env = os.environ.copy()
-        env['PYTHONIOENCODING'] = 'utf-8'
+        env['PYTHONIOENCODING'] = 'utf-8:replace'  # replace モードに変更
+        env['PYTHONLEGACYWINDOWSFSENCODING'] = '0'  # Windows レガシーエンコーディングを無効化
+        env['PYTHONUTF8'] = '1'  # UTF-8モードを強制
+        env['PYTHONPATH'] = ''  # 環境のPythonPathをクリア
+        env['LC_ALL'] = 'C.UTF-8'  # ロケールをUTF-8に設定
+        env['LANG'] = 'en_US.UTF-8'  # 言語設定をUTF-8に
         
         cmd = [sys.executable, "-I", "-S", "-B", "-c", worker_code]
         try:
-            # 入力コードをクリーンアップ（サロゲート文字を直接除去）
-            clean_code = ''.join(
-                char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-                for char in enhanced_code
-            )
-            
-            # デバッグ：サロゲート文字が検出された場合にログ
-            surrogate_count = sum(1 for char in enhanced_code if 0xD800 <= ord(char) <= 0xDFFF)
-            if surrogate_count > 0:
-                print(f"[execute_python] {surrogate_count}個のサロゲート文字を'?'に置換しました")
-            
             proc = subprocess.run(
                 cmd,
-                input=clean_code,
+                input=enhanced_code,
                 text=True,
                 capture_output=True,
                 cwd=tmpdir,  # 一時ディレクトリに制限
                 timeout=TIMEOUT_SEC,
                 encoding='utf-8',
-                errors='replace',  # エンコードできない文字を?に置換
+                errors='replace',  # より安定的なreplaceモード
                 env=env
             )
             
-            # 4. 出力サイズ制限
+            # 4. 出力サイズ制限と文字列クリーンアップ
             out = proc.stdout[:OUTPUT_LIMIT]
             if len(proc.stdout) > OUTPUT_LIMIT:
                 out += "\n... [出力が切り詰められました]"
             
+            # ★出口：統一ポリシーでstdout/stderrを無害化
+            policy = get_surrogate_policy()
+            clean_out = scrub_surrogates(out, policy)
+            clean_stderr = scrub_surrogates(proc.stderr, policy)
+            
             if proc.returncode == 0:
-                if out.strip():
-                    return f"成功:\n{out}"
+                if clean_out.strip():
+                    return f"成功:\n{clean_out}"
                 else:
                     return "成功:\n（出力なし）\nヒント: 結果を表示するには print() を使用してください。例: print(result)"
             else:
-                return f"実行エラー:\n{proc.stderr}"
+                return f"Execution Error:\n{clean_stderr}"
                 
         except subprocess.TimeoutExpired:
-            return f"タイムアウト（{TIMEOUT_SEC}秒）"
+            return f"Timeout ({TIMEOUT_SEC} seconds)"
+        except Exception as e:
+            # ★出口処理：エラーメッセージも統一ポリシーで無害化
+            error_msg = scrub_surrogates(str(e), get_surrogate_policy())
+            return f"Execution Error:\n{error_msg}"
 
 @mcp.tool()
 def execute_python_basic(code: str) -> Dict[str, Any]:
@@ -451,29 +526,50 @@ def execute_python_basic(code: str) -> Dict[str, Any]:
     Returns:
         成功フラグ、標準出力、エラー出力を含む辞書
     """
+    
+    # ★入口：実行前に統一ポリシーでコードを無害化
+    policy = get_surrogate_policy()
+    code = scrub_surrogates(code, policy)
+    
     # 自動print()追加
     enhanced_code = add_print_if_needed(code)
+    
+    # enhanced_codeも無害化（add_print_if_neededの後に）
+    enhanced_code = scrub_surrogates(enhanced_code, policy)
+    
+    # デバッグ：各段階でサロゲート文字をチェック (execute_python_basic)
+    def debug_surrogates_basic(text, label):
+        surrogate_count = sum(1 for char in text if 0xD800 <= ord(char) <= 0xDFFF)
+        if surrogate_count > 0:
+            print(f"[DEBUG BASIC {label}] {surrogate_count} surrogates found")
+            for i, char in enumerate(text):
+                if 0xD800 <= ord(char) <= 0xDFFF:
+                    print(f"  Position {i}: {repr(char)} (U+{ord(char):04X})")
+                    break
+        else:
+            print(f"[DEBUG BASIC {label}] No surrogates found")
+    
+    debug_surrogates_basic(code, "原始code")
+    debug_surrogates_basic(enhanced_code, "enhanced_code")
     
     try:
         # 環境変数でPythonのエンコーディングを指定（日本語対応）
         env = os.environ.copy()
-        env['PYTHONIOENCODING'] = 'utf-8'
+        env['PYTHONIOENCODING'] = 'utf-8:replace'  # replace モードに変更
+        env['PYTHONLEGACYWINDOWSFSENCODING'] = '0'  # Windows レガシーエンコーディングを無効化
+        env['PYTHONUTF8'] = '1'  # UTF-8モードを強制
+        env['PYTHONPATH'] = ''  # 環境のPythonPathをクリア
+        env['LC_ALL'] = 'C.UTF-8'  # ロケールをUTF-8に設定
+        env['LANG'] = 'en_US.UTF-8'  # 言語設定をUTF-8に
         
         # 標準入力経由でコードを実行
         # なぜこの方法？
         # - ファイルI/Oのオーバーヘッドがない
         # - ウイルス対策ソフトの干渉を受けにくい
         # - より高速で安定
-        # 入力コードをクリーンアップ（サロゲート文字を直接除去）
-        clean_code = ''.join(
-            char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-            for char in enhanced_code
-        )
-        
-        # デバッグ：サロゲート文字が検出された場合にログ
-        surrogate_count = sum(1 for char in enhanced_code if 0xD800 <= ord(char) <= 0xDFFF)
-        if surrogate_count > 0:
-            print(f"[execute_python_basic] {surrogate_count}個のサロゲート文字を'?'に置換しました")
+        # ★中間処理：enhanced_codeを統一ポリシーで無害化
+        policy = get_surrogate_policy()
+        clean_code = scrub_surrogates(enhanced_code, policy)
         
         result = subprocess.run(
             [sys.executable, "-c", "import sys; exec(sys.stdin.read())"],
@@ -482,25 +578,36 @@ def execute_python_basic(code: str) -> Dict[str, Any]:
             text=True,              # テキストとして扱う
             timeout=5,              # 5秒でタイムアウト
             encoding='utf-8',       # UTF-8エンコーディング
-            errors='replace',       # エンコードできない文字を?に置換
+            errors='replace',       # より安定的なreplaceモード
             env=env                 # 環境変数を渡す
         )
         
-        stdout = result.stdout.strip()
-        if result.returncode == 0 and not stdout:
+        # ★出口：統一ポリシーでstdout/stderrを無害化
+        policy = get_surrogate_policy()
+        clean_stdout = scrub_surrogates(result.stdout.strip(), policy)
+        clean_stderr = scrub_surrogates(result.stderr, policy)
+        
+        if result.returncode == 0 and not clean_stdout:
             # 成功したが出力がない場合の警告
-            stdout = "（出力なし）\nヒント: 結果を表示するには print() を使用してください。例: print(result)"
+            clean_stdout = "(No output)\nHint: Use print() to display results. Example: print(result)"
         
         return {
             'success': result.returncode == 0,  # 0は成功を意味する
-            'stdout': stdout,                   # 標準出力（print文の結果）
-            'stderr': result.stderr             # エラー出力
+            'stdout': clean_stdout,             # クリーンアップされた標準出力
+            'stderr': clean_stderr              # クリーンアップされたエラー出力
         }
         
     except subprocess.TimeoutExpired:
         return {
             'success': False,
-            'error': 'タイムアウト（5秒）'
+            'error': 'Timeout (5 seconds)'
+        }
+    except Exception as e:
+        # ★出口処理：エラーメッセージも統一ポリシーで無害化
+        error_msg = scrub_surrogates(str(e), get_surrogate_policy())
+        return {
+            'success': False,
+            'error': error_msg
         }
 
 if __name__ == "__main__":

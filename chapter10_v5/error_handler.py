@@ -212,6 +212,16 @@ class ErrorHandler:
             try:
                 result = await execute_func(tool, params)
                 
+                # デバッグ：error_handlerでの結果チェック
+                if isinstance(result, str):
+                    surrogate_count = sum(1 for char in result if 0xD800 <= ord(char) <= 0xDFFF)
+                    if surrogate_count > 0:
+                        print(f"[error_handler] Found {surrogate_count} surrogate characters in result")
+                        for i, char in enumerate(result):
+                            if 0xD800 <= ord(char) <= 0xDFFF:
+                                print(f"[error_handler] First surrogate at position {i}: {repr(char)} (U+{ord(char):04X})")
+                                break
+                
                 # 成功時のログ
                 if attempt > 0:
                     self.error_stats["retry_success"] += 1

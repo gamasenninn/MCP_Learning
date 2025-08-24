@@ -6,7 +6,7 @@ display:
   # UIモード: basic, rich
   # basic: 従来のシンプルなprint文ベース
   # rich: richライブラリを使った美しいUI（要pip install rich）
-  ui_mode: "rich"
+  ui_mode: "basic"
   
   # タスクリストのスタイル: checkbox, simple, verbose
   style: "checkbox"
