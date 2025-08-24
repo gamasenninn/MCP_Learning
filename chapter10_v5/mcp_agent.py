@@ -32,6 +32,51 @@ except ImportError:
     RICH_AVAILABLE = False
 
 
+def clean_surrogate_chars(text: str) -> str:
+    """
+    サロゲート文字を除去するユーティリティ関数
+    
+    Args:
+        text: 処理対象の文字列
+        
+    Returns:
+        サロゲート文字を'?'に置換した文字列
+    """
+    if not isinstance(text, str):
+        return str(text)
+    
+    return ''.join(
+        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+        for char in text
+    )
+
+
+def safe_str(obj: Any) -> str:
+    """
+    サロゲート文字を安全に処理する文字列変換
+    
+    Args:
+        obj: 文字列に変換するオブジェクト
+        
+    Returns:
+        サロゲート文字が除去された文字列
+    """
+    return clean_surrogate_chars(str(obj))
+
+
+def safe_repr(obj: Any) -> str:
+    """
+    サロゲート文字を安全に処理するrepr変換
+    
+    Args:
+        obj: repr文字列に変換するオブジェクト
+        
+    Returns:
+        サロゲート文字が除去されたrepr文字列
+    """
+    return clean_surrogate_chars(repr(obj))
+
+
 class MCPAgentV4:
     """
     Claude Code風の対話型MCPエージェント
@@ -235,7 +280,8 @@ class MCPAgentV4:
                 temperature=0.1
             )
             
-            result = json.loads(response.choices[0].message.content)
+            content = clean_surrogate_chars(response.choices[0].message.content)
+            result = json.loads(content)
             if self.verbose:
                 print(f"[判定] {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}")
             
@@ -392,13 +438,14 @@ class MCPAgentV4:
                 temperature=0.1
             )
             
-            result = json.loads(response.choices[0].message.content)
+            content = clean_surrogate_chars(response.choices[0].message.content)
+            result = json.loads(content)
             tasks = result.get("tasks", [])
             
             if self.verbose:
                 print(f"[シンプルタスク] {len(tasks)}個のタスクを生成")
                 for i, task in enumerate(tasks, 1):
-                    print(f"  [{i}] Tool: {task.get('tool')}, Params: {str(task.get('params', {}))[:200]}...")
+                    print(f"  [{i}] Tool: {task.get('tool')}, Params: {safe_str(task.get('params', {}))[:200]}...")
                     print(f"      Description: {task.get('description', 'N/A')}")
             
             # 最大3タスクに制限
@@ -485,7 +532,8 @@ class MCPAgentV4:
                 temperature=self.config["llm"]["temperature"]
             )
             
-            result = json.loads(response.choices[0].message.content)
+            content = clean_surrogate_chars(response.choices[0].message.content)
+            result = json.loads(content)
             return result
             
         except Exception as e:
@@ -605,13 +653,14 @@ class MCPAgentV4:
                 temperature=0.1
             )
             
-            result = json.loads(response.choices[0].message.content)
+            content = clean_surrogate_chars(response.choices[0].message.content)
+            result = json.loads(content)
             tasks = result.get("tasks", [])
             
             if self.verbose:
                 print(f"[計画] {len(tasks)}個のタスクを生成")
                 for i, task in enumerate(tasks, 1):
-                    print(f"  [{i}] Tool: {task.get('tool')}, Params: {str(task.get('params', {}))[:100]}...")
+                    print(f"  [{i}] Tool: {task.get('tool')}, Params: {safe_str(task.get('params', {}))[:100]}...")
                     print(f"      Description: {task.get('description', 'N/A')}")
             
             return tasks
@@ -637,7 +686,7 @@ class MCPAgentV4:
         if self.verbose and tool == "execute_python":
             print(f"[DEBUG] About to execute {tool} with full params:")
             for k, v in params.items():
-                print(f"  {k}: {repr(v)}")
+                print(f"  {k}: {safe_repr(v)}")
         
         self.display.show_tool_call(tool, params)
         
@@ -650,7 +699,8 @@ class MCPAgentV4:
             
             # デバッグ: 実行結果を確認
             if self.verbose:
-                result_preview = str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
+                safe_result = safe_str(result)
+                result_preview = safe_result[:200] + "..." if len(safe_result) > 200 else safe_result
                 print(f"[DEBUG] Tool: {tool}, Result: {result_preview}")
             
             self.display.show_step_complete(description, duration, success=True)

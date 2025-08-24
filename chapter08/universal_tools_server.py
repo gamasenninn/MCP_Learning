@@ -392,9 +392,16 @@ def execute_python(code: str) -> str:
         
         cmd = [sys.executable, "-I", "-S", "-B", "-c", worker_code]
         try:
-            # 入力コードをクリーンアップ（サロゲート文字を除去）
-            import codecs
-            clean_code = codecs.decode(codecs.encode(enhanced_code, 'utf-8', 'surrogateescape'), 'utf-8', 'replace')
+            # 入力コードをクリーンアップ（サロゲート文字を直接除去）
+            clean_code = ''.join(
+                char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+                for char in enhanced_code
+            )
+            
+            # デバッグ：サロゲート文字が検出された場合にログ
+            surrogate_count = sum(1 for char in enhanced_code if 0xD800 <= ord(char) <= 0xDFFF)
+            if surrogate_count > 0:
+                print(f"[execute_python] {surrogate_count}個のサロゲート文字を'?'に置換しました")
             
             proc = subprocess.run(
                 cmd,
@@ -457,9 +464,16 @@ def execute_python_basic(code: str) -> Dict[str, Any]:
         # - ファイルI/Oのオーバーヘッドがない
         # - ウイルス対策ソフトの干渉を受けにくい
         # - より高速で安定
-        # 入力コードをクリーンアップ（サロゲート文字を除去）
-        import codecs
-        clean_code = codecs.decode(codecs.encode(enhanced_code, 'utf-8', 'surrogateescape'), 'utf-8', 'replace')
+        # 入力コードをクリーンアップ（サロゲート文字を直接除去）
+        clean_code = ''.join(
+            char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+            for char in enhanced_code
+        )
+        
+        # デバッグ：サロゲート文字が検出された場合にログ
+        surrogate_count = sum(1 for char in enhanced_code if 0xD800 <= ord(char) <= 0xDFFF)
+        if surrogate_count > 0:
+            print(f"[execute_python_basic] {surrogate_count}個のサロゲート文字を'?'に置換しました")
         
         result = subprocess.run(
             [sys.executable, "-c", "import sys; exec(sys.stdin.read())"],

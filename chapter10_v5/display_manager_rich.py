@@ -16,6 +16,25 @@ import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+
+def clean_surrogate_chars_display(text: str) -> str:
+    """
+    Rich表示用のサロゲート文字除去関数
+    
+    Args:
+        text: 処理対象の文字列
+        
+    Returns:
+        サロゲート文字を'?'に置換した文字列
+    """
+    if not isinstance(text, str):
+        return str(text)
+    
+    return ''.join(
+        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+        for char in text
+    )
+
 # Rich imports (optional dependency)
 try:
     from rich.console import Console
@@ -233,11 +252,13 @@ class RichDisplayManager:
         
         # 内容がJSONの場合は構文ハイライト
         try:
-            json.loads(content)
-            formatted_content = Syntax(content, "json", theme="monokai", line_numbers=False)
+            # サロゲート文字を除去してからJSON処理
+            clean_content = clean_surrogate_chars_display(content)
+            json.loads(clean_content)
+            formatted_content = Syntax(clean_content, "json", theme="monokai", line_numbers=False)
         except:
-            # JSONでない場合は普通のテキスト
-            formatted_content = content
+            # JSONでない場合は普通のテキスト（サロゲート文字も除去）
+            formatted_content = clean_surrogate_chars_display(content)
         
         panel = Panel(
             formatted_content,
@@ -321,23 +342,27 @@ class RichDisplayManager:
             if code_param:
                 self.console.print(f"    [dim]実行するコード:[/dim]")
                 from rich.syntax import Syntax
-                code_display = Syntax(code_param, "python", theme="monokai", line_numbers=True)
+                # サロゲート文字を除去してからSyntax処理
+                clean_code = clean_surrogate_chars_display(code_param)
+                code_display = Syntax(clean_code, "python", theme="monokai", line_numbers=True)
                 self.console.print(code_display)
                 
                 # その他のパラメータがあれば表示
                 other_params = {k: v for k, v in params.items() if k != code_key}
                 if other_params:
-                    if len(str(other_params)) < 100:
-                        param_text = str(other_params)
+                    param_str = clean_surrogate_chars_display(str(other_params))
+                    if len(param_str) < 100:
+                        param_text = param_str
                     else:
-                        param_text = str(other_params)[:97] + "..."
+                        param_text = param_str[:97] + "..."
                     self.console.print(f"    [dim]その他のパラメータ: {param_text}[/dim]")
             else:
                 # 通常のパラメータ表示
-                if len(str(params)) < 200:
-                    param_text = str(params)
+                param_str = clean_surrogate_chars_display(str(params))
+                if len(param_str) < 200:
+                    param_text = param_str
                 else:
-                    param_text = str(params)[:197] + "..."
+                    param_text = param_str[:197] + "..."
                 self.console.print(f"    [dim]パラメータ: {param_text}[/dim]")
     
     def show_waiting(self, message: str = "処理中"):

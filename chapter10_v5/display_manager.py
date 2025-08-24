@@ -15,6 +15,19 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 
+def safe_str_display(obj: Any) -> str:
+    """
+    表示用の安全な文字列変換（サロゲート文字を除去）
+    """
+    if not isinstance(obj, str):
+        obj = str(obj)
+    
+    return ''.join(
+        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+        for char in obj
+    )
+
+
 class DisplayManager:
     """視覚的フィードバックを管理するクラス"""
     
@@ -195,8 +208,14 @@ class DisplayManager:
         """ツール呼び出し情報を表示"""
         print(f"  -> {tool} を実行中...")
         if self.show_thinking and params:
-            # パラメータを簡潔に表示
-            param_str = ", ".join([f"{k}={v}" for k, v in params.items()])
+            # パラメータを簡潔に表示（サロゲート文字を安全に処理）
+            param_items = []
+            for k, v in params.items():
+                safe_key = safe_str_display(k)
+                safe_value = safe_str_display(v)
+                param_items.append(f"{safe_key}={safe_value}")
+            
+            param_str = ", ".join(param_items)
             if len(param_str) > 60:
                 param_str = param_str[:57] + "..."
             print(f"     パラメータ: {param_str}")

@@ -205,18 +205,17 @@ class ConnectionManager:
                 if surrogate_count > 0:
                     print(f"[DEBUG] Found {surrogate_count} surrogate characters in code")
                 
-                try:
-                    clean_code = code.encode('utf-8', 'surrogateescape').decode('utf-8', 'replace')
-                    arguments = dict(arguments)  # コピーを作成
-                    arguments["code"] = clean_code
-                    print(f"[DEBUG] Code cleaned: {original_length} -> {len(clean_code)} chars, surrogates removed")
-                except Exception as e:
-                    print(f"[DEBUG] Cleaning failed: {e}")
-                    # フォールバック：基本的な置換
-                    clean_code = ''.join(char if ord(char) < 0x10000 else '?' for char in code)
-                    arguments = dict(arguments)
-                    arguments["code"] = clean_code
-                    print(f"[DEBUG] Fallback cleaning applied: {original_length} -> {len(clean_code)} chars")
+                # 直接的なサロゲート文字除去（より確実な方法）
+                clean_code = ''.join(
+                    char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+                    for char in code
+                )
+                arguments = dict(arguments)  # コピーを作成
+                arguments["code"] = clean_code
+                
+                # 除去された文字数を計算
+                removed_count = original_length - len(clean_code.replace('?', ''))
+                print(f"[DEBUG] Code cleaned: {original_length} -> {len(clean_code)} chars, {removed_count} surrogates replaced with '?'")
             
             # ツール実行
             result = await client.call_tool(tool_name, arguments)

@@ -17,6 +17,25 @@ from typing import Dict, Any, Optional, Callable
 from openai import AsyncOpenAI
 
 
+def clean_surrogate_chars_error(text: str) -> str:
+    """
+    エラー処理用のサロゲート文字除去関数
+    
+    Args:
+        text: 処理対象の文字列
+        
+    Returns:
+        サロゲート文字を'?'に置換した文字列
+    """
+    if not isinstance(text, str):
+        return str(text)
+    
+    return ''.join(
+        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
+        for char in text
+    )
+
+
 class ErrorHandler:
     """
     エラー処理司令塔クラス
@@ -203,7 +222,8 @@ class ErrorHandler:
                 
             except Exception as e:
                 self.error_stats["total_errors"] += 1
-                error_msg = str(e)
+                # エラーメッセージからサロゲート文字を除去
+                error_msg = clean_surrogate_chars_error(str(e))
                 error_type = self.classify_error(error_msg)
                 
                 if self.verbose:
@@ -231,7 +251,8 @@ class ErrorHandler:
                             if corrected_params and corrected_params != params:
                                 params = corrected_params
                                 if self.verbose:
-                                    print(f"  [修正] パラメータを修正しました: {params}")
+                                    safe_params = clean_surrogate_chars_error(str(params))
+                                    print(f"  [修正] パラメータを修正しました: {safe_params}")
                                 # パラメータ修正後は残り試行回数を制限（無限ループ防止）
                                 max_retries = min(max_retries, attempt + 2)
                             else:
