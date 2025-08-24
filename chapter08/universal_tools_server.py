@@ -392,14 +392,19 @@ def execute_python(code: str) -> str:
         
         cmd = [sys.executable, "-I", "-S", "-B", "-c", worker_code]
         try:
+            # 入力コードをクリーンアップ（サロゲート文字を除去）
+            import codecs
+            clean_code = codecs.decode(codecs.encode(enhanced_code, 'utf-8', 'surrogateescape'), 'utf-8', 'replace')
+            
             proc = subprocess.run(
                 cmd,
-                input=enhanced_code,
+                input=clean_code,
                 text=True,
                 capture_output=True,
                 cwd=tmpdir,  # 一時ディレクトリに制限
                 timeout=TIMEOUT_SEC,
                 encoding='utf-8',
+                errors='replace',  # エンコードできない文字を?に置換
                 env=env
             )
             
@@ -452,13 +457,18 @@ def execute_python_basic(code: str) -> Dict[str, Any]:
         # - ファイルI/Oのオーバーヘッドがない
         # - ウイルス対策ソフトの干渉を受けにくい
         # - より高速で安定
+        # 入力コードをクリーンアップ（サロゲート文字を除去）
+        import codecs
+        clean_code = codecs.decode(codecs.encode(enhanced_code, 'utf-8', 'surrogateescape'), 'utf-8', 'replace')
+        
         result = subprocess.run(
             [sys.executable, "-c", "import sys; exec(sys.stdin.read())"],
-            input=enhanced_code,     # 強化されたコードを標準入力として渡す
+            input=clean_code,       # クリーンアップされたコードを標準入力として渡す
             capture_output=True,     # 出力をキャプチャ
             text=True,              # テキストとして扱う
             timeout=5,              # 5秒でタイムアウト
             encoding='utf-8',       # UTF-8エンコーディング
+            errors='replace',       # エンコードできない文字を?に置換
             env=env                 # 環境変数を渡す
         )
         

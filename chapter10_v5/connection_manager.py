@@ -24,21 +24,21 @@ if sys.platform == "win32":
     import io
     os.environ["PYTHONIOENCODING"] = "utf-8"
     
-    # Windows環境でのcp932エンコーディング問題対策
-    # 標準出力をcp932でerrors='replace'に設定
+    # Windows環境でのUTF-8エンコーディング問題対策
+    # 標準出力をUTF-8でerrors='replace'に設定（絵文字エラー防止）
     try:
-        sys.stdout.reconfigure(encoding='cp932', errors='replace')
-        sys.stderr.reconfigure(encoding='cp932', errors='replace')
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     except AttributeError:
         # Python 3.7未満の場合のフォールバック
         sys.stdout = io.TextIOWrapper(
             sys.stdout.buffer,
-            encoding='cp932',
+            encoding='utf-8',
             errors='replace'
         )
         sys.stderr = io.TextIOWrapper(
             sys.stderr.buffer,
-            encoding='cp932', 
+            encoding='utf-8', 
             errors='replace'
         )
 
@@ -194,28 +194,69 @@ class ConnectionManager:
         client = self.clients[server_name]
         
         try:
+            # ツール実行前に引数をクリーンアップ（サロゲート文字対策）
+            if tool_name == "execute_python" and "code" in arguments:
+                # Pythonコードからサロゲート文字を除去
+                code = arguments["code"]
+                original_length = len(code)
+                
+                # デバッグ：サロゲート文字の存在を確認
+                surrogate_count = sum(1 for char in code if 0xDC00 <= ord(char) <= 0xDFFF or 0xD800 <= ord(char) <= 0xDBFF)
+                if surrogate_count > 0:
+                    print(f"[DEBUG] Found {surrogate_count} surrogate characters in code")
+                
+                try:
+                    clean_code = code.encode('utf-8', 'surrogateescape').decode('utf-8', 'replace')
+                    arguments = dict(arguments)  # コピーを作成
+                    arguments["code"] = clean_code
+                    print(f"[DEBUG] Code cleaned: {original_length} -> {len(clean_code)} chars, surrogates removed")
+                except Exception as e:
+                    print(f"[DEBUG] Cleaning failed: {e}")
+                    # フォールバック：基本的な置換
+                    clean_code = ''.join(char if ord(char) < 0x10000 else '?' for char in code)
+                    arguments = dict(arguments)
+                    arguments["code"] = clean_code
+                    print(f"[DEBUG] Fallback cleaning applied: {original_length} -> {len(clean_code)} chars")
+            
             # ツール実行
             result = await client.call_tool(tool_name, arguments)
             
-            # Windows環境でのUTF-8文字列処理（絵文字エラー対策）
+            # Windows環境での文字列処理（絵文字のみ置換）
             if sys.platform == "win32" and isinstance(result, str):
                 try:
-                    # cp932でエンコードできない文字を ? に置換
-                    result = result.encode('cp932', errors='replace').decode('cp932')
-                except Exception:
-                    # エンコード処理が失敗した場合はそのまま返す
-                    pass
+                    # まずcp932でエンコード可能かチェック
+                    result.encode('cp932')
+                    # 問題なければそのまま返す
+                except UnicodeEncodeError:
+                    # エンコードできない文字（絵文字など）を個別に処理
+                    safe_result = []
+                    for char in result:
+                        try:
+                            char.encode('cp932')
+                            safe_result.append(char)
+                        except UnicodeEncodeError:
+                            # エンコードできない文字のみ ? に置換
+                            safe_result.append('?')
+                    result = ''.join(safe_result)
             
             return result
             
         except Exception as e:
             error_msg = str(e)
-            # エラーメッセージも同様に処理
+            # エラーメッセージも同様に処理（絵文字のみ置換）
             if sys.platform == "win32":
                 try:
-                    error_msg = error_msg.encode('cp932', errors='replace').decode('cp932')
-                except Exception:
-                    pass
+                    error_msg.encode('cp932')
+                except UnicodeEncodeError:
+                    # エンコードできない文字のみ置換
+                    safe_msg = []
+                    for char in error_msg:
+                        try:
+                            char.encode('cp932')
+                            safe_msg.append(char)
+                        except UnicodeEncodeError:
+                            safe_msg.append('?')
+                    error_msg = ''.join(safe_msg)
             raise RuntimeError(f"ツール実行エラー ({tool_name}): {error_msg}")
     
     def get_available_tools(self) -> List[str]:

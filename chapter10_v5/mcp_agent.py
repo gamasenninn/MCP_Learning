@@ -98,7 +98,10 @@ class MCPAgentV4:
         # AGENT.md読み込み（V3から継承）
         self.custom_instructions = self._load_agent_md()
         
-        if self.config["development"]["verbose"]:
+        # verboseフラグを統一
+        self.verbose = self.config.get("development", {}).get("verbose", True)
+        
+        if self.verbose:
             self.display.show_banner()
             if self.ui_mode == "rich":
                 print(f"[INFO] Rich UI mode enabled")
@@ -145,7 +148,7 @@ class MCPAgentV4:
     
     async def initialize(self):
         """エージェントの初期化"""
-        if self.config["development"]["verbose"]:
+        if self.verbose:
             print(f"\n[指示書] {'カスタム指示あり' if self.custom_instructions else '基本能力のみ'}")
             print("=" * 60)
         
@@ -163,7 +166,7 @@ class MCPAgentV4:
         """
         self.session_stats["total_requests"] += 1
         
-        if self.config["development"]["verbose"]:
+        if self.verbose:
             print(f"\n[リクエスト #{self.session_stats['total_requests']}] {user_query}")
             print("-" * 60)
         
@@ -185,7 +188,7 @@ class MCPAgentV4:
             
         except Exception as e:
             error_msg = f"処理エラー: {str(e)}"
-            if self.config["development"]["verbose"]:
+            if self.verbose:
                 print(f"[エラー] {error_msg}")
             return error_msg
     
@@ -233,7 +236,7 @@ class MCPAgentV4:
             )
             
             result = json.loads(response.choices[0].message.content)
-            if self.config["development"]["verbose"]:
+            if self.verbose:
                 print(f"[判定] {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}")
             
             return result
@@ -391,6 +394,12 @@ class MCPAgentV4:
             
             result = json.loads(response.choices[0].message.content)
             tasks = result.get("tasks", [])
+            
+            if self.verbose:
+                print(f"[シンプルタスク] {len(tasks)}個のタスクを生成")
+                for i, task in enumerate(tasks, 1):
+                    print(f"  [{i}] Tool: {task.get('tool')}, Params: {str(task.get('params', {}))[:200]}...")
+                    print(f"      Description: {task.get('description', 'N/A')}")
             
             # 最大3タスクに制限
             if len(tasks) > 3:
@@ -599,8 +608,11 @@ class MCPAgentV4:
             result = json.loads(response.choices[0].message.content)
             tasks = result.get("tasks", [])
             
-            if self.config["development"]["verbose"]:
+            if self.verbose:
                 print(f"[計画] {len(tasks)}個のタスクを生成")
+                for i, task in enumerate(tasks, 1):
+                    print(f"  [{i}] Tool: {task.get('tool')}, Params: {str(task.get('params', {}))[:100]}...")
+                    print(f"      Description: {task.get('description', 'N/A')}")
             
             return tasks
             
@@ -620,6 +632,13 @@ class MCPAgentV4:
         
         # ステップ開始の表示
         self.display.show_step_start(step_num, "?", description)
+        
+        # デバッグ: ツール実行直前のパラメータを確認
+        if self.verbose and tool == "execute_python":
+            print(f"[DEBUG] About to execute {tool} with full params:")
+            for k, v in params.items():
+                print(f"  {k}: {repr(v)}")
+        
         self.display.show_tool_call(tool, params)
         
         start_time = time.time()
@@ -628,6 +647,11 @@ class MCPAgentV4:
             # ツール実行
             result = await self._execute_tool_with_retry(tool, params)
             duration = time.time() - start_time
+            
+            # デバッグ: 実行結果を確認
+            if self.verbose:
+                result_preview = str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
+                print(f"[DEBUG] Tool: {tool}, Result: {result_preview}")
             
             self.display.show_step_complete(description, duration, success=True)
             
@@ -690,6 +714,13 @@ class MCPAgentV4:
                 result_data["error"] = r["error"]
             
             serializable_results.append(result_data)
+        
+        # デバッグ: LLMに渡されるデータを確認
+        if self.verbose:
+            print(f"[DEBUG] Serializable results being sent to LLM:")
+            for i, result in enumerate(serializable_results):
+                result_preview = str(result.get("result", "N/A"))[:100] + "..." if len(str(result.get("result", "N/A"))) > 100 else str(result.get("result", "N/A"))
+                print(f"  [{i+1}] Tool: {result['tool']}, Result: {result_preview}")
         
         # プロンプトテンプレートから取得
         prompt = PromptTemplates.get_result_interpretation_prompt(
