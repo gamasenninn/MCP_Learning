@@ -371,7 +371,7 @@ class MCPAgentV4:
     
     async def _generate_simple_task_list(self, user_query: str) -> List[Dict]:
         """シンプルなタスク用のタスクリスト生成（プロンプト外部化版）"""
-        recent_context = self._get_recent_context()
+        recent_context = self._get_conversation_context_only()
         tools_info = self.connection_manager.format_tools_for_llm()
         
         # プロンプトテンプレートから取得
@@ -575,7 +575,7 @@ class MCPAgentV4:
     
     async def _generate_task_list(self, user_query: str) -> List[Dict]:
         """タスクリストを事前生成（プロンプト外部化版）"""
-        recent_context = self._get_recent_context()
+        recent_context = self._get_conversation_context_only()
         tools_info = self.connection_manager.format_tools_for_llm()
         
         # プロンプトテンプレートから取得
