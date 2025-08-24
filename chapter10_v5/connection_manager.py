@@ -21,7 +21,26 @@ from fastmcp.client.transports import StdioTransport
 
 # Windows環境でのUnicode対応
 if sys.platform == "win32":
+    import io
     os.environ["PYTHONIOENCODING"] = "utf-8"
+    
+    # Windows環境でのcp932エンコーディング問題対策
+    # 標準出力をcp932でerrors='replace'に設定
+    try:
+        sys.stdout.reconfigure(encoding='cp932', errors='replace')
+        sys.stderr.reconfigure(encoding='cp932', errors='replace')
+    except AttributeError:
+        # Python 3.7未満の場合のフォールバック
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer,
+            encoding='cp932',
+            errors='replace'
+        )
+        sys.stderr = io.TextIOWrapper(
+            sys.stderr.buffer,
+            encoding='cp932', 
+            errors='replace'
+        )
 
 load_dotenv()
 
@@ -177,10 +196,27 @@ class ConnectionManager:
         try:
             # ツール実行
             result = await client.call_tool(tool_name, arguments)
+            
+            # Windows環境でのUTF-8文字列処理（絵文字エラー対策）
+            if sys.platform == "win32" and isinstance(result, str):
+                try:
+                    # cp932でエンコードできない文字を ? に置換
+                    result = result.encode('cp932', errors='replace').decode('cp932')
+                except Exception:
+                    # エンコード処理が失敗した場合はそのまま返す
+                    pass
+            
             return result
             
         except Exception as e:
-            raise RuntimeError(f"ツール実行エラー ({tool_name}): {str(e)}")
+            error_msg = str(e)
+            # エラーメッセージも同様に処理
+            if sys.platform == "win32":
+                try:
+                    error_msg = error_msg.encode('cp932', errors='replace').decode('cp932')
+                except Exception:
+                    pass
+            raise RuntimeError(f"ツール実行エラー ({tool_name}): {error_msg}")
     
     def get_available_tools(self) -> List[str]:
         """利用可能なツール一覧を取得"""
