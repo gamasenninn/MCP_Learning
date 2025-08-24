@@ -22,6 +22,7 @@ from openai import AsyncOpenAI
 from connection_manager import ConnectionManager
 from display_manager import DisplayManager
 from error_handler import ErrorHandler
+from prompts import PromptTemplates
 
 # Rich UI support
 try:
@@ -214,35 +215,14 @@ class MCPAgentV4:
             return "処理方法を決定できませんでした。"
     
     async def _determine_execution_type(self, user_query: str) -> Dict:
-        """実行方式を判定"""
+        """実行方式を判定（プロンプト外部化版）"""
         recent_context = self._get_recent_context()
         
-        prompt = f"""ユーザーの要求を分析し、適切な実行方式を判定してください。
-
-## 最近の会話
-{recent_context if recent_context else "（新規会話）"}
-
-## ユーザーの要求
-{user_query}
-
-## 判定基準
-- **NO_TOOL**: 日常会話（挨拶・雑談・自己紹介・感想・お礼等のみ）
-- **SIMPLE**: 1-2ステップの単純なタスク（計算、単一API呼び出し等）
-- **COMPLEX**: データベース操作、多段階処理等
-
-## 重要な注意
-- 「天気」「温度」「気象」等は外部APIが必要なのでNO_TOOLではありません！
-
-## 出力形式
-NO_TOOLの場合：
-```json
-{{"type": "NO_TOOL", "response": "**Markdown形式**で適切な応答メッセージ", "reason": "判定理由"}}
-```
-
-その他の場合：
-```json
-{{"type": "SIMPLE|COMPLEX", "reason": "判定理由"}}
-```"""
+        # プロンプトテンプレートから取得
+        prompt = PromptTemplates.get_execution_type_determination_prompt(
+            recent_context=recent_context,
+            user_query=user_query
+        )
 
         try:
             response = await self.llm.chat.completions.create(
@@ -298,8 +278,8 @@ NO_TOOLの場合：
                 self.display.update_checklist(task_list, current=i, completed=completed, failed=failed)
             
             try:
-                # タスク実行
-                result = await self._execute_planned_task(task, i+1, len(task_list))
+                # タスク実行（これまでの実行コンテキストを渡す）
+                result = await self._execute_planned_task(task, i+1, len(task_list), execution_context.copy())
                 
                 if result["success"]:
                     completed.append(i)
@@ -321,39 +301,85 @@ NO_TOOLの場合：
         
         # 結果をLLMで解釈
         return await self._interpret_planned_results(user_query, execution_context)
+    
+    def _resolve_placeholders(self, params: Dict, execution_context: List[Dict]) -> Dict:
+        """
+        パラメータ内のプレースホルダーを実際の値に置換
+        
+        サポートされるプレースホルダー:
+        - {{previous_result}} - 直前のタスク結果
+        - {{task_N.field}} - N番目のタスクの特定フィールド
+        - 文字列パターンマッチング（例：「取得した都市名」→ 実際の都市名）
+        """
+        if not execution_context:
+            return params
+        
+        import re
+        import json
+        
+        def replace_value(value):
+            if not isinstance(value, str):
+                return value
+                
+            # {{previous_result}} パターン
+            if value == "{{previous_result}}" and execution_context:
+                last_result = execution_context[-1].get("result", "")
+                return str(last_result)
+            
+            # {{task_N.field}} パターン
+            task_pattern = r'\{\{task_(\d+)\.(\w+)\}\}'
+            matches = re.findall(task_pattern, value)
+            for task_num, field in matches:
+                task_index = int(task_num) - 1
+                if 0 <= task_index < len(execution_context):
+                    task_result = execution_context[task_index].get("result", {})
+                    if isinstance(task_result, dict) and field in task_result:
+                        placeholder = f"{{{{task_{task_num}.{field}}}}}"
+                        value = value.replace(placeholder, str(task_result[field]))
+            
+            # 文字列パターンマッチング（IP地理情報 → 天気用）
+            if value in ["取得した都市名", "取得した都市", "都市名"]:
+                # 最新の結果から都市情報を探す
+                for result_data in reversed(execution_context):
+                    result = result_data.get("result", {})
+                    if isinstance(result, dict):
+                        # IPアドレス情報から都市を取得
+                        if "city" in result:
+                            return result["city"]
+                        elif "市" in str(result) or "区" in str(result):
+                            # 日本の市区情報を検索
+                            city_match = re.search(r'([^、]+[市区])', str(result))
+                            if city_match:
+                                return city_match.group(1)
+            
+            return value
+        
+        # パラメータの各値を再帰的に処理
+        def process_params(obj):
+            if isinstance(obj, dict):
+                return {k: process_params(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [process_params(item) for item in obj]
+            else:
+                return replace_value(obj)
+        
+        return process_params(params)
 
     async def _execute_simple_dialogue(self, user_query: str) -> str:
         """単純なタスクの実行（統一メソッド使用版）"""
         return await self._execute_with_tasklist(user_query, "SIMPLE")
     
     async def _generate_simple_task_list(self, user_query: str) -> List[Dict]:
-        """シンプルなタスク用のタスクリスト生成"""
+        """シンプルなタスク用のタスクリスト生成（プロンプト外部化版）"""
         recent_context = self._get_recent_context()
         tools_info = self.connection_manager.format_tools_for_llm()
         
-        prompt = f"""ユーザーの単純な要求に対して、最小限のタスクリストを生成してください。
-
-## 最近の会話
-{recent_context if recent_context else "（新規会話）"}
-
-## ユーザーの要求
-{user_query}
-
-## 利用可能なツール
-{tools_info}
-
-## 指針
-- 1-3個の必要最小限のタスクで構成
-- 計算の場合は演算順序を考慮
-- 天気等の単一API呼び出しは1つのタスクで完結
-
-## 出力形式
-```json
-{{"tasks": [
-  {{"tool": "ツール名", "params": {{"param": "値"}}, "description": "何をするかの説明"}},
-  ...
-]}}
-```"""
+        # プロンプトテンプレートから取得
+        prompt = PromptTemplates.get_simple_task_list_prompt(
+            recent_context=recent_context,
+            user_query=user_query,
+            tools_info=tools_info
+        )
 
         try:
             response = await self.llm.chat.completions.create(
@@ -430,49 +456,15 @@ NO_TOOLの場合：
         # 実行コンテキストを整理
         context_summary = self._format_execution_context(context)
         
-        prompt = f"""あなたは知的な対話型アシスタントです。ユーザーの要求を段階的に処理します。
-
-## 最近の会話
-{recent_context if recent_context else "（新規会話）"}
-
-## ユーザーの要求
-{user_query}
-
-## これまでの実行状況
-{context_summary if context_summary else "（まだ何も実行していません）"}
-
-## 利用可能なツール
-{tools_info}
-
-## カスタム指示
-{self.custom_instructions if self.custom_instructions else "なし"}
-
-## 判定指針
-**最優先**: これは日常会話（挨拶・雑談・自己紹介等）ですか？
-- YES → NO_TOOL を選択
-
-**ツール実行が必要な場合**:
-1. これまでの実行結果を踏まえて、次に必要な1つのアクションを決定
-2. 全て完了している場合は COMPLETE を選択
-3. 1ステップずつ実行（Claude Code風）
-
-## 出力形式
-### 日常会話の場合
-```json
-{{"type": "NO_TOOL", "response": "**Markdown形式**で適切な応答"}}
-```
-
-### ツール実行の場合
-```json
-{{"type": "EXECUTE", "tool": "ツール名", "params": {{"param": "値"}}, "description": "何をするかの説明"}}
-```
-
-### 完了の場合  
-```json
-{{"type": "COMPLETE", "response": "**Markdown形式**で最終的な回答"}}
-```
-
-現在のステップ: {step}"""
+        # プロンプトテンプレートから取得
+        prompt = PromptTemplates.get_next_action_prompt(
+            recent_context=recent_context,
+            user_query=user_query,
+            context_summary=context_summary,
+            tools_info=tools_info,
+            custom_instructions=self.custom_instructions,
+            step=step
+        )
         
         try:
             self.session_stats["total_api_calls"] += 1
@@ -582,52 +574,17 @@ NO_TOOLの場合：
         return "\n".join(lines)
     
     async def _generate_task_list(self, user_query: str) -> List[Dict]:
-        """タスクリストを事前生成"""
+        """タスクリストを事前生成（プロンプト外部化版）"""
         recent_context = self._get_recent_context()
         tools_info = self.connection_manager.format_tools_for_llm()
         
-        prompt = f"""ユーザーの要求を分析し、実行に必要なタスクリストを生成してください。
-
-## 最近の会話
-{recent_context if recent_context else "（新規会話）"}
-
-## ユーザーの要求
-{user_query}
-
-## 利用可能なツール
-{tools_info}
-
-## カスタム指示
-{self.custom_instructions if self.custom_instructions else "なし"}
-
-## データベース操作の必須ルール（重要）
-データベース関連の要求は必ず以下の3ステップ：
-1. list_tables - テーブル一覧確認
-2. get_table_schema - 対象テーブルのスキーマ確認  
-3. execute_safe_query - 実際のクエリ実行
-
-## データベース表示ルール
-- 「一覧」「全件」「すべて」→ LIMIT 20（適度な件数）
-- 「少し」「いくつか」→ LIMIT 5
-- 「全部」「制限なし」→ LIMIT 50（最大）
-- 「1つ」「最高」「最安」→ LIMIT 1
-
-例：「商品データ一覧を表示して」
-→ [
-  {{"tool": "list_tables", "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "products"}}, "description": "商品テーブルのスキーマを確認"}},
-  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを20件表示"}}
-]
-
-## 出力形式
-```json
-{{"tasks": [
-  {{"tool": "ツール名", "params": {{"param": "値"}}, "description": "何をするかの説明"}},
-  ...
-]}}
-```
-
-必要最小限のタスクで構成し、効率的な実行計画を作成してください。"""
+        # プロンプトテンプレートから取得
+        prompt = PromptTemplates.get_complex_task_list_prompt(
+            recent_context=recent_context,
+            user_query=user_query,
+            tools_info=tools_info,
+            custom_instructions=self.custom_instructions
+        )
 
         try:
             self.session_stats["total_api_calls"] += 1
@@ -651,11 +608,19 @@ NO_TOOLの場合：
             print(f"[エラー] タスクリスト生成失敗: {e}")
             return []
     
-    async def _execute_planned_task(self, task: Dict, step_num: int, total: int) -> Dict:
+    async def _execute_planned_task(self, task: Dict, step_num: int, total: int, execution_context: List[Dict] = None) -> Dict:
         """計画されたタスクを実行"""
         tool = task.get("tool", "")
         params = task.get("params", {})
         description = task.get("description", f"{tool}を実行")
+        
+        # プレースホルダー置換処理
+        if execution_context:
+            params = self._resolve_placeholders(params, execution_context)
+        
+        # ステップ開始の表示
+        self.display.show_step_start(step_num, "?", description)
+        self.display.show_tool_call(tool, params)
         
         start_time = time.time()
         
@@ -663,6 +628,8 @@ NO_TOOLの場合：
             # ツール実行
             result = await self._execute_tool_with_retry(tool, params)
             duration = time.time() - start_time
+            
+            self.display.show_step_complete(description, duration, success=True)
             
             self.session_stats["successful_tasks"] += 1
             
@@ -694,7 +661,8 @@ NO_TOOLの場合：
     
     async def _interpret_planned_results(self, user_query: str, results: List[Dict]) -> str:
         """計画実行の結果を解釈"""
-        recent_context = self._get_recent_context()
+        # 現在のリクエストのみに焦点を当て、前のタスク結果の混入を防ぐ
+        recent_context = self._get_conversation_context_only()
         
         # 結果をシリアライズ
         serializable_results = []
@@ -723,39 +691,13 @@ NO_TOOLの場合：
             
             serializable_results.append(result_data)
         
-        prompt = f"""実行結果を解釈して、ユーザーに分かりやすく回答してください。
-
-## 会話の文脈
-{recent_context if recent_context else "（新規会話）"}
-
-## ユーザーの元の質問
-{user_query}
-
-## 実行されたタスクと結果
-{json.dumps(serializable_results, ensure_ascii=False, indent=2)}
-
-## カスタム指示
-{self.custom_instructions if self.custom_instructions else "特になし"}
-
-ユーザーの質問に直接答え、成功したタスクの結果を統合して自然な回答を生成してください。
-失敗したタスクがある場合は、その影響を考慮した回答にしてください。
-
-## 出力形式
-回答は**Markdown形式**で整理して出力してください：
-- 見出しは `### タイトル`
-- 重要な情報は `**太字**`
-- リストは `-` または `1.` 
-- コードや値は `code`
-- 実行結果は `> 結果`
-- 長い結果は適切に改行・整理
-
-例：
-### 実行結果
-計算が完了しました：
-- **100 + 200** = `300`
-- 実行時間: `0.5秒`
-
-> すべての計算が正常に完了しました。"""
+        # プロンプトテンプレートから取得
+        prompt = PromptTemplates.get_result_interpretation_prompt(
+            recent_context=recent_context,
+            user_query=user_query,
+            serializable_results=json.dumps(serializable_results, ensure_ascii=False, indent=2),
+            custom_instructions=self.custom_instructions
+        )
 
         try:
             response = await self.llm.chat.completions.create(
@@ -805,6 +747,25 @@ NO_TOOLの場合：
             # 実行結果があれば追加
             if h.get('execution_results'):
                 lines.append(f"実行結果データ: {self._summarize_results(h['execution_results'])}")
+        
+        return "\n".join(lines)
+    
+    def _get_conversation_context_only(self, max_items: int = 3) -> str:
+        """
+        会話文脈のみを取得（実行結果を除外）
+        結果解釈時に前のタスク結果の混入を防ぐ
+        """
+        if not self.conversation_history:
+            return ""
+        
+        recent = self.conversation_history[-max_items:]
+        lines = []
+        for h in recent:
+            role = "User" if h['role'] == "user" else "Assistant"
+            # 長いメッセージは省略
+            msg = h['message'][:150] + "..." if len(h['message']) > 150 else h['message']
+            lines.append(f"{role}: {msg}")
+            # 実行結果は含めない（混入を防ぐため）
         
         return "\n".join(lines)
     

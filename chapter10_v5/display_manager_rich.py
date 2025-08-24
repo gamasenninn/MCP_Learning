@@ -309,13 +309,36 @@ class RichDisplayManager:
         self.console.print(f"  [dim]→ {tool} を実行中...[/dim]")
         
         if self.show_thinking and params:
-            # パラメータを整形して表示
-            if len(str(params)) < 100:
-                param_text = str(params)
-            else:
-                param_text = str(params)[:97] + "..."
+            # Pythonコード実行と思われるパラメータを探す
+            code_param = None
+            code_key = None
+            for key in ['code', 'python_code', 'script', 'command']:
+                if key in params and isinstance(params[key], str):
+                    code_param = params[key]
+                    code_key = key
+                    break
             
-            self.console.print(f"    [dim]パラメータ: {param_text}[/dim]")
+            if code_param:
+                self.console.print(f"    [dim]実行するコード:[/dim]")
+                from rich.syntax import Syntax
+                code_display = Syntax(code_param, "python", theme="monokai", line_numbers=True)
+                self.console.print(code_display)
+                
+                # その他のパラメータがあれば表示
+                other_params = {k: v for k, v in params.items() if k != code_key}
+                if other_params:
+                    if len(str(other_params)) < 100:
+                        param_text = str(other_params)
+                    else:
+                        param_text = str(other_params)[:97] + "..."
+                    self.console.print(f"    [dim]その他のパラメータ: {param_text}[/dim]")
+            else:
+                # 通常のパラメータ表示
+                if len(str(params)) < 200:
+                    param_text = str(params)
+                else:
+                    param_text = str(params)[:197] + "..."
+                self.console.print(f"    [dim]パラメータ: {param_text}[/dim]")
     
     def show_waiting(self, message: str = "処理中"):
         """待機中の美しいスピナー表示"""

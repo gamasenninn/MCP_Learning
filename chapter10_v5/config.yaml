@@ -15,7 +15,7 @@ display:
   show_timing: true
   
   # 思考過程を表示するかどうか（デバッグ用）
-  show_thinking: false
+  show_thinking: true
   
   # プログレスバーを表示するかどうか
   show_progress: true
@@ -95,7 +95,7 @@ development:
   verbose: true
   
   # API呼び出し回数を表示
-  show_api_calls: false
+  show_api_calls: true
   
   # 実行統計を表示
   show_statistics: true
