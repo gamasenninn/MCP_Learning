@@ -558,16 +558,6 @@ class MCPAgentV4:
             # ツール実行（リトライ付き）
             result = await self._execute_tool_with_retry(tool, params)
             
-            # デバッグ：結果のサロゲート文字をチェック
-            if isinstance(result, str):
-                surrogate_count = sum(1 for char in result if 0xD800 <= ord(char) <= 0xDFFF)
-                if surrogate_count > 0:
-                    print(f"[mcp_agent] Found {surrogate_count} surrogate characters in tool result")
-                    for i, char in enumerate(result):
-                        if 0xD800 <= ord(char) <= 0xDFFF:
-                            print(f"[mcp_agent] First surrogate at position {i}: {repr(char)} (U+{ord(char):04X})")
-                            break
-            
             duration = time.time() - start_time
             
             self.display.show_step_complete(description, duration, success=True)
@@ -577,7 +567,7 @@ class MCPAgentV4:
                 "step": step_num,
                 "tool": tool,
                 "params": params,
-                "result": clean_surrogate_chars(str(result)) if isinstance(result, str) else result,
+                "result": result,
                 "success": True,
                 "duration": duration,
                 "description": description
@@ -585,7 +575,7 @@ class MCPAgentV4:
             
         except Exception as e:
             duration = time.time() - start_time
-            error_msg = clean_surrogate_chars(str(e))
+            error_msg = str(e)
             
             self.display.show_step_complete(f"{description} - {error_msg}", 
                                           duration, success=False)
@@ -722,7 +712,7 @@ class MCPAgentV4:
                 "step": step_num,
                 "tool": tool,
                 "params": params,
-                "result": clean_surrogate_chars(str(result)) if isinstance(result, str) else result,
+                "result": result,
                 "success": True,
                 "duration": duration,
                 "description": description
@@ -730,7 +720,7 @@ class MCPAgentV4:
             
         except Exception as e:
             duration = time.time() - start_time
-            error_msg = clean_surrogate_chars(str(e))
+            error_msg = str(e)
             
             self.session_stats["failed_tasks"] += 1
             

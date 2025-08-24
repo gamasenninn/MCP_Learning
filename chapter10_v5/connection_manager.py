@@ -194,29 +194,6 @@ class ConnectionManager:
         client = self.clients[server_name]
         
         try:
-            # ツール実行前に引数をクリーンアップ（サロゲート文字対策）
-            if tool_name == "execute_python" and "code" in arguments:
-                # Pythonコードからサロゲート文字を除去
-                code = arguments["code"]
-                original_length = len(code)
-                
-                # デバッグ：サロゲート文字の存在を確認
-                surrogate_count = sum(1 for char in code if 0xDC00 <= ord(char) <= 0xDFFF or 0xD800 <= ord(char) <= 0xDBFF)
-                if surrogate_count > 0:
-                    print(f"[DEBUG] Found {surrogate_count} surrogate characters in code")
-                
-                # 直接的なサロゲート文字除去（より確実な方法）
-                clean_code = ''.join(
-                    char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-                    for char in code
-                )
-                arguments = dict(arguments)  # コピーを作成
-                arguments["code"] = clean_code
-                
-                # 除去された文字数を計算
-                removed_count = original_length - len(clean_code.replace('?', ''))
-                print(f"[DEBUG] Code cleaned: {original_length} -> {len(clean_code)} chars, {removed_count} surrogates replaced with '?'")
-            
             # ツール実行
             result = await client.call_tool(tool_name, arguments)
             
@@ -232,41 +209,6 @@ class ConnectionManager:
                                 for char in content_item.text
                             )
                             content_item.text = clean_text
-            
-            # Windows環境での文字列処理（絵文字のみ置換）
-            if sys.platform == "win32" and isinstance(result, str):
-                try:
-                    # まずcp932でエンコード可能かチェック
-                    result.encode('cp932')
-                    # 問題なければそのまま返す
-                except UnicodeEncodeError:
-                    # エンコードできない文字（絵文字など）を個別に処理
-                    safe_result = []
-                    for char in result:
-                        try:
-                            char.encode('cp932')
-                            safe_result.append(char)
-                        except UnicodeEncodeError:
-                            # エンコードできない文字のみ ? に置換
-                            safe_result.append('?')
-                    result = ''.join(safe_result)
-            
-            # 最終的な結果もサロゲート文字をクリーンアップ
-            if isinstance(result, str):
-                # デバッグ：サロゲート文字をチェック
-                surrogate_count = sum(1 for char in result if 0xD800 <= ord(char) <= 0xDFFF)
-                if surrogate_count > 0:
-                    print(f"[connection_manager] Found {surrogate_count} surrogate characters in result")
-                    # 最初のサロゲート文字の位置を表示
-                    for i, char in enumerate(result):
-                        if 0xD800 <= ord(char) <= 0xDFFF:
-                            print(f"[connection_manager] First surrogate at position {i}: {repr(char)} (U+{ord(char):04X})")
-                            break
-                
-                result = ''.join(
-                    char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-                    for char in result
-                )
             
             return result
             
