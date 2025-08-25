@@ -97,6 +97,18 @@ class MCPAgentV4:
             "total_api_calls": 0
         }
         
+        # 実行メトリクス（新機能）
+        self.execution_metrics = {
+            "task_generation_success": 0,
+            "task_generation_failures": 0,
+            "task_generation_retry_success": 0,
+            "task_generation_total_failures": 0,
+            "json_parse_errors": 0,
+            "timeout_count": 0,
+            "fallback_usage": 0,
+            "average_task_count": 0.0,
+            "total_task_lists": 0
+        }
         
         # AGENT.md読み込み（V3から継承）
         self.custom_instructions = self._load_agent_md()
@@ -248,18 +260,27 @@ class MCPAgentV4:
     async def _execute_with_tasklist(self, user_query: str, task_type: str = "SIMPLE") -> str:
         """統一されたタスクリスト実行メソッド（重複コード統合版）"""
         
-        # タスクタイプに応じたタスクリスト生成
-        if task_type == "SIMPLE":
-            task_list = await self._generate_simple_task_list(user_query)
-            if not task_list:
-                # タスクリスト生成に失敗した場合は従来方式にフォールバック
+        # リトライ機能付きタスクリスト生成
+        task_list = await self._generate_task_list_with_retry(user_query, task_type)
+        
+        if not task_list:
+            # フォールバック設定を確認
+            fallback_enabled = self.config.get("execution", {}).get("fallback_enabled", True)
+            
+            if fallback_enabled and task_type == "SIMPLE":
+                # フォールバック使用
+                self.execution_metrics["fallback_usage"] += 1
+                self.logger.info("[フォールバック] 従来方式で実行します")
                 return await self._execute_fallback_dialogue(user_query)
-        elif task_type == "COMPLEX":
-            task_list = await self._generate_task_list(user_query)
-            if not task_list:
-                return "タスクリストの生成に失敗しました。"
-        else:
-            return f"不明なタスクタイプ: {task_type}"
+            else:
+                # エラーメッセージを返す
+                error_msg = (f"申し訳ありません。{user_query}の処理方法を決定できませんでした。\n"
+                           f"別の表現で再度お試しください。")
+                return error_msg
+        
+        # メトリクス更新
+        self.execution_metrics["total_task_lists"] += 1
+        self.execution_metrics["average_task_count"] += len(task_list)
         
         # チェックリストを表示
         if self.ui_mode == "rich" and self.config.get("display", {}).get("rich_options", {}).get("enable_live_updates", True):
@@ -367,10 +388,88 @@ class MCPAgentV4:
                 return replace_value(obj)
         
         return process_params(params)
+    
+    async def _generate_task_list_with_retry(self, user_query: str, task_type: str = "SIMPLE") -> List[Dict]:
+        """
+        リトライ機能付きタスクリスト生成
+        
+        Args:
+            user_query: ユーザークエリ
+            task_type: "SIMPLE" または "COMPLEX"
+            
+        Returns:
+            生成されたタスクリスト
+        """
+        retry_config = self.config.get("execution", {}).get("retry_strategy", {})
+        max_retries = retry_config.get("max_retries", 3)
+        use_progressive = retry_config.get("progressive_temperature", True)
+        initial_temp = retry_config.get("initial_temperature", 0.1)
+        temp_increment = retry_config.get("temperature_increment", 0.2)
+        
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                # プログレッシブtemperature調整
+                if use_progressive and attempt > 0:
+                    temperature = min(initial_temp + (attempt * temp_increment), 0.9)
+                else:
+                    temperature = initial_temp
+                
+                if task_type == "SIMPLE":
+                    task_list = await self._generate_simple_task_list_with_temp(user_query, temperature)
+                elif task_type == "COMPLEX":
+                    task_list = await self._generate_complex_task_list_with_temp(user_query, temperature)
+                else:
+                    return []
+                
+                if task_list:
+                    # 成功時はメトリクスを更新
+                    if hasattr(self, 'execution_metrics'):
+                        self.execution_metrics['task_generation_success'] += 1
+                        if attempt > 0:
+                            self.execution_metrics['task_generation_retry_success'] += 1
+                    
+                    if attempt > 0:
+                        self.logger.info(f"[成功] タスクリスト生成 - {attempt + 1}回目の試行で成功")
+                    
+                    # タスク数制限
+                    max_tasks = self.config.get("execution", {}).get("max_tasks", 10)
+                    if len(task_list) > max_tasks:
+                        self.logger.warning(f"タスク数制限: {len(task_list)} → {max_tasks}")
+                        task_list = task_list[:max_tasks]
+                    
+                    return task_list
+                else:
+                    last_error = f"試行{attempt + 1}: 空のタスクリストが生成されました"
+                    
+            except json.JSONDecodeError as e:
+                last_error = f"試行{attempt + 1}: JSON解析エラー - {str(e)}"
+                self.logger.info(f"[リトライ] {last_error}")
+            except Exception as e:
+                last_error = f"試行{attempt + 1}: {str(e)}"
+                self.logger.info(f"[リトライ] {last_error}")
+            
+            # メトリクス更新
+            if hasattr(self, 'execution_metrics'):
+                self.execution_metrics['task_generation_failures'] += 1
+        
+        # 全ての試行が失敗
+        self.logger.error(f"[失敗] タスクリスト生成 - {max_retries}回の試行全てが失敗")
+        self.logger.error(f"最後のエラー: {last_error}")
+        
+        if hasattr(self, 'execution_metrics'):
+            self.execution_metrics['task_generation_total_failures'] += 1
+            
+        return []
 
     
     async def _generate_simple_task_list(self, user_query: str) -> List[Dict]:
         """シンプルなタスク用のタスクリスト生成（プロンプト外部化版）"""
+        return await self._generate_simple_task_list_with_temp(user_query, 0.1)
+    
+    async def _generate_simple_task_list_with_temp(self, user_query: str, temperature: float = 0.1) -> List[Dict]:
+        """温度パラメータ指定可能なシンプルタスクリスト生成"""
         recent_context = self._get_conversation_context_only()
         tools_info = self.connection_manager.format_tools_for_llm()
         
@@ -386,7 +485,7 @@ class MCPAgentV4:
                 model=self.config["llm"]["model"],
                 messages=[{"role": "system", "content": prompt}],
                 response_format={"type": "json_object"},
-                temperature=0.1
+                temperature=temperature
             )
             
             content = safe_str(response.choices[0].message.content)
@@ -504,7 +603,7 @@ class MCPAgentV4:
         
         try:
             # ツール実行（リトライ付き）
-            result = await self._execute_tool_with_retry(tool, params)
+            result = await self._execute_tool_with_retry(tool, params, description)
             
             duration = time.time() - start_time
             
@@ -539,17 +638,26 @@ class MCPAgentV4:
                 "description": description
             }
     
-    async def _execute_tool_with_retry(self, tool: str, params: Dict) -> Any:
+    async def _execute_tool_with_retry(self, tool: str, params: Dict, description: str = "") -> Any:
         """
         LLMベースの賢いツール実行・判断システム
+        
+        Args:
+            tool: ツール名
+            params: 実行パラメータ
+            description: タスクの説明（LLM判断時のコンテキスト）
         """
         self.logger.info(f"[DEBUG] _execute_tool_with_retry が呼び出されました: tool={tool}")
         max_retries = 3
         
+        # 元のパラメータを保持（破壊的変更を避ける）
+        original_params = params.copy()
+        current_params = params.copy()
+        
         for attempt in range(max_retries + 1):
             # 1. ツール実行（例外もキャッチして結果として扱う）
             try:
-                raw_result = await self.connection_manager.call_tool(tool, params)
+                raw_result = await self.connection_manager.call_tool(tool, current_params)
                 self.logger.info(f"[DEBUG] ツール実行成功 attempt={attempt + 1}, result_type={type(raw_result)}")
             except Exception as e:
                 # 例外も「結果」として扱い、LLM判断に回す
@@ -561,10 +669,12 @@ class MCPAgentV4:
                 self.logger.info(f"[DEBUG] LLM判断を開始...")
                 judgment = await self._judge_and_process_result(
                     tool=tool,
-                    params=params,
+                    current_params=current_params,
+                    original_params=original_params,
                     result=raw_result,
                     attempt=attempt + 1,
-                    max_retries=max_retries
+                    max_retries=max_retries,
+                    description=description
                 )
                 self.logger.info(f"[DEBUG] LLM判断完了")
                 
@@ -577,11 +687,11 @@ class MCPAgentV4:
             if judgment.get("needs_retry", False) and attempt < max_retries:
                 self.logger.info(f"[リトライ] {attempt + 1}/{max_retries}: {judgment.get('error_reason', 'LLM判断によるリトライ')}")
                 
-                # 修正されたパラメータで再実行
-                corrected_params = judgment.get("corrected_params", params)
-                if corrected_params != params:
+                # 修正されたパラメータで再実行（元のparamsは保持）
+                corrected_params = judgment.get("corrected_params", current_params)
+                if corrected_params != current_params:
                     self.logger.info(f"[修正] パラメータを修正: {safe_str(corrected_params)}")
-                    params = corrected_params
+                    current_params = corrected_params
                 
                 continue
             
@@ -594,36 +704,45 @@ class MCPAgentV4:
     async def _judge_and_process_result(
         self, 
         tool: str, 
-        params: Dict, 
+        current_params: Dict,
+        original_params: Dict, 
         result: Any,
         attempt: int = 1,
-        max_retries: int = 3
+        max_retries: int = 3,
+        description: str = ""
     ) -> Dict[str, Any]:
         """
         LLMによるツール実行結果の判断と処理
         
         Args:
             tool: ツール名
-            params: 実行パラメータ
+            current_params: 現在実行したパラメータ
+            original_params: 元のパラメータ（修正の基準）
             result: ツール実行結果
             attempt: 現在の試行回数
             max_retries: 最大リトライ回数
+            description: 現在実行中のタスクの説明
             
         Returns:
             判断結果辞書
         """
         # 結果を安全な文字列に変換
         result_str = safe_str(result)
-        params_str = safe_str(params)
+        current_params_str = safe_str(current_params)
+        original_params_str = safe_str(original_params)
         
         # 現在の会話文脈を取得
         current_query = getattr(self, 'current_user_query', '（不明）')
         
         prompt = f"""あなたはツール実行結果を判断するエキスパートです。以下の実行結果を分析してください。
 
+## 現在実行中のタスク
+タスク: {description or "タスクの説明なし"}
+
 ## 実行情報
 - ツール名: {tool}
-- パラメータ: {params_str}
+- 現在のパラメータ: {current_params_str}
+- 元のパラメータ: {original_params_str}
 - 試行回数: {attempt}/{max_retries + 1}
 - ユーザーの要求: {current_query}
 
@@ -635,18 +754,26 @@ class MCPAgentV4:
 2. **失敗判定**: エラーメッセージ、構文エラー、実行エラーが含まれている
 3. **リトライ判定**: パラメータを修正すれば成功する可能性がある
 
+## **重要**: パラメータ修正時のルール
+- **現在実行中のタスクの目的を必ず尊重してください**
+- 修正は元のパラメータ（{original_params_str}）を基準に行ってください
+- 他のタスクのパラメータに変更してはいけません
+- 例：「Beijing」の天気取得なら → 「Beijing, CN」等に修正
+- 例：「Tokyo」の天気取得なら → 「Tokyo, JP」等に修正
+
 ## 出力形式（JSON）
 {{
     "is_success": boolean,
     "needs_retry": boolean,
     "error_reason": "エラーの理由（失敗時のみ）",
-    "corrected_params": {{修正されたパラメータ（リトライ時のみ）}},
+    "corrected_params": {{元のパラメータを基準とした修正案}},
     "processed_result": "ユーザー向けの整形済み結果",
     "summary": "実行結果の要約"
 }}
 
 ## 修正例
 - 構文エラー → コードを正しい構文に修正
+- 都市名エラー → 国コード付きに修正（例：Beijing → Beijing, CN）
 - 日本語パラメータ → 英語に変換
 - セミコロン記法 → 複数行に分解"""
 
@@ -710,6 +837,10 @@ class MCPAgentV4:
     
     async def _generate_task_list(self, user_query: str) -> List[Dict]:
         """タスクリストを事前生成（プロンプト外部化版）"""
+        return await self._generate_complex_task_list_with_temp(user_query, 0.1)
+    
+    async def _generate_complex_task_list_with_temp(self, user_query: str, temperature: float = 0.1) -> List[Dict]:
+        """温度パラメータ指定可能な複雑タスクリスト生成"""
         recent_context = self._get_conversation_context_only()
         tools_info = self.connection_manager.format_tools_for_llm()
         
@@ -728,7 +859,7 @@ class MCPAgentV4:
                 model=self.config["llm"]["model"],
                 messages=[{"role": "system", "content": prompt}],
                 response_format={"type": "json_object"},
-                temperature=0.1
+                temperature=temperature
             )
             
             content = safe_str(response.choices[0].message.content)
@@ -772,7 +903,7 @@ class MCPAgentV4:
         
         try:
             # ツール実行
-            result = await self._execute_tool_with_retry(tool, params)
+            result = await self._execute_tool_with_retry(tool, params, description)
             duration = time.time() - start_time
             
             # デバッグ: 実行結果を確認
@@ -965,6 +1096,40 @@ class MCPAgentV4:
         if len(self.conversation_history) > max_history:
             self.conversation_history = self.conversation_history[-max_history:]
     
+    def _show_execution_metrics(self):
+        """実行メトリクスを表示"""
+        if not self.config.get("development", {}).get("show_statistics", True):
+            return
+            
+        print("\n" + "=" * 50)
+        print("📊 実行メトリクス")
+        print("=" * 50)
+        
+        # タスクリスト生成統計
+        total_attempts = (self.execution_metrics["task_generation_success"] + 
+                         self.execution_metrics["task_generation_total_failures"])
+        if total_attempts > 0:
+            success_rate = (self.execution_metrics["task_generation_success"] / total_attempts) * 100
+            print(f"タスクリスト生成成功率: {success_rate:.1f}% ({self.execution_metrics['task_generation_success']}/{total_attempts})")
+        
+        if self.execution_metrics["task_generation_retry_success"] > 0:
+            print(f"リトライ成功: {self.execution_metrics['task_generation_retry_success']}回")
+        
+        if self.execution_metrics["json_parse_errors"] > 0:
+            print(f"JSON解析エラー: {self.execution_metrics['json_parse_errors']}回")
+            
+        if self.execution_metrics["timeout_count"] > 0:
+            print(f"タイムアウト発生: {self.execution_metrics['timeout_count']}回")
+            
+        if self.execution_metrics["fallback_usage"] > 0:
+            print(f"フォールバック使用: {self.execution_metrics['fallback_usage']}回")
+        
+        if self.execution_metrics["total_task_lists"] > 0:
+            avg_tasks = self.execution_metrics["average_task_count"] / self.execution_metrics["total_task_lists"]
+            print(f"平均タスク数: {avg_tasks:.1f}個")
+        
+        print("=" * 50)
+    
     def _show_session_statistics(self):
         """セッション統計を表示"""
         total_time = (datetime.now() - self.session_stats["start_time"]).total_seconds()
@@ -981,6 +1146,8 @@ class MCPAgentV4:
     
     async def close(self):
         """リソースの解放"""
+        # 終了時にメトリクス表示
+        self._show_execution_metrics()
         await self.connection_manager.close()
 
 
