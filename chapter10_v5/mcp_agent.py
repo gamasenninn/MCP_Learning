@@ -557,10 +557,24 @@ class MCPAgentV4:
     
     async def _execute_tool_with_retry(self, tool: str, params: Dict) -> Any:
         """
-        ツールをリトライ付きで実行（ErrorHandler統一版）
+        シンプルなツール実行（ErrorHandlerが例外を自動処理）
         """
+        # ErrorHandlerにすべて委譲
         async def execute_func(tool_name: str, tool_params: Dict) -> Any:
-            return await self.connection_manager.call_tool(tool_name, tool_params)
+            try:
+                result = await self.connection_manager.call_tool(tool_name, tool_params)
+                self.logger.debug(f"[DEBUG] Tool result type: {type(result)}")
+                if hasattr(result, 'is_error'):
+                    self.logger.debug(f"[DEBUG] is_error attribute: {result.is_error}")
+                # CallToolResultがis_error=Trueの場合、例外として投げる
+                if hasattr(result, 'is_error') and result.is_error:
+                    error_msg = safe_str(result)
+                    self.logger.debug(f"[DEBUG] Converting is_error=True to exception: {error_msg[:200]}")
+                    raise RuntimeError(f"Tool execution failed: {error_msg}")
+                return result
+            except Exception as e:
+                self.logger.debug(f"[DEBUG] Exception in execute_func: {type(e).__name__}: {e}")
+                raise
         
         def get_tools_info() -> str:
             return self.connection_manager.format_tools_for_llm()
@@ -573,6 +587,111 @@ class MCPAgentV4:
         )
     
     
+    def _is_obviously_successful(self, result) -> bool:
+        """明らかに成功している結果を高速判定（CallToolResult対応版）"""
+        if result is None:
+            return False
+        
+        # CallToolResultの場合、実際の内容を確認
+        actual_result = result
+        if hasattr(result, 'content') and result.content:
+            if hasattr(result.content[0], 'text'):
+                actual_result = result.content[0].text
+            elif len(result.content) > 0:
+                actual_result = result.content[0]
+        
+        # 数値、リスト、正常な辞書など
+        if isinstance(actual_result, (int, float, list)):
+            return True
+        
+        # 辞書で明らかなデータ構造
+        if isinstance(actual_result, dict):
+            result_str = safe_str(actual_result).lower()
+            return not any(kw in result_str for kw in ['error', 'exception', 'failed', 'エラー'])
+        
+        # 短い文字列で明らかなエラーでない
+        if isinstance(actual_result, str) and len(actual_result) < 50:
+            error_keywords = ['error', 'exception', 'failed', 'エラー', '失敗', 'syntax', 'invalid']
+            result_lower = actual_result.lower()
+            return not any(kw in result_lower for kw in error_keywords)
+        
+        return False
+    
+    def _seems_suspicious(self, result) -> bool:
+        """疑わしい結果かどうかを判定（LLM判定が必要か）（CallToolResult対応版）"""
+        if result is None:
+            return True
+        
+        # CallToolResultの場合、実際の内容を確認
+        actual_result = result
+        if hasattr(result, 'content') and result.content:
+            if hasattr(result.content[0], 'text'):
+                actual_result = result.content[0].text
+            elif len(result.content) > 0:
+                actual_result = result.content[0]
+        
+        # エラーチェックで既に検出されている場合は疑わしくない
+        if self._contains_error_message(result):
+            return False
+        
+        # 長いテキスト結果で判定が難しい場合
+        if isinstance(actual_result, str) and len(actual_result) > 100:
+            return True
+        
+        # 複雑な辞書構造で成功/失敗が不明な場合  
+        if isinstance(actual_result, dict) and len(actual_result) > 3:
+            return True
+        
+        return False  # その他は疑わしくない
+    
+    async def _validate_result_with_llm(self, tool: str, params: Dict, result: Any) -> Dict:
+        """LLMによる結果検証"""
+        try:
+            # 結果を安全に文字列化
+            result_str = safe_str(result)[:1000]  # 最大1000文字まで
+            params_str = safe_str(params)[:500]   # 最大500文字まで
+            
+            prompt = f"""以下のツール実行結果を分析してください：
+
+## 実行情報
+ツール名: {tool}
+パラメータ: {params_str}
+
+## 実行結果
+{result_str}
+
+## 判定してください
+この結果は成功ですか、それともエラーですか？
+
+**判定基準：**
+- エラーメッセージが含まれているか
+- 期待される出力形式になっているか
+- 構文エラーや実行エラーの兆候があるか
+
+## 出力形式
+```json
+{{
+  "is_error": true/false,
+  "confidence": 0.0-1.0,
+  "error_description": "エラーの場合の詳細説明",
+  "suggested_fix": "修正提案（あれば）"
+}}
+```"""
+
+            response = await self.llm.chat.completions.create(
+                model=self.config["llm"]["model"],
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.1  # 判定は保守的に
+            )
+            
+            content = safe_str(response.choices[0].message.content)
+            return json.loads(content)
+            
+        except Exception as e:
+            self.logger.warning(f"LLM結果検証でエラー: {e}")
+            # フォールバック：保守的にエラーでないとする
+            return {"is_error": False, "confidence": 0.0}
     
     def _format_execution_context(self, context: List[Dict]) -> str:
         """実行コンテキストを文字列にフォーマット"""

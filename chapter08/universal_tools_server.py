@@ -446,7 +446,8 @@ def execute_python(code: str) -> str:
     # 1. 静的解析でコードをチェック
     is_safe, msg = check_code_safety(enhanced_code)
     if not is_safe:
-        return f"セキュリティエラー: {msg}"
+        # FastMCPがエラーとして認識できるように例外を投げる
+        raise ValueError(f"セキュリティエラー: {msg}")
     
     # 2. ワーカープロセスを生成
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -497,14 +498,15 @@ def execute_python(code: str) -> str:
                 else:
                     return "成功:\n（出力なし）\nヒント: 結果を表示するには print() を使用してください。例: print(result)"
             else:
-                return f"Execution Error:\n{clean_stderr}"
+                # FastMCPがエラーとして認識できるように例外を投げる
+                raise RuntimeError(f"Execution Error:\n{clean_stderr}")
                 
         except subprocess.TimeoutExpired:
-            return f"Timeout ({TIMEOUT_SEC} seconds)"
+            raise TimeoutError(f"Timeout ({TIMEOUT_SEC} seconds)")
         except Exception as e:
-            # ★出口処理：エラーメッセージも統一ポリシーで無害化
+            # ★出口処理：エラーメッセージも統一ポリシーで無害化してから例外を再発生
             error_msg = scrub_surrogates(str(e), get_surrogate_policy())
-            return f"Execution Error:\n{error_msg}"
+            raise RuntimeError(f"Execution Error:\n{error_msg}")
 
 @mcp.tool()
 def execute_python_basic(code: str) -> Dict[str, Any]:
