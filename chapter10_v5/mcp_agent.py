@@ -380,6 +380,104 @@ class MCPAgentV4:
         
         return process_params(params)
     
+    def _build_judgment_prompt(
+        self, 
+        tool: str, 
+        current_params: Dict,
+        original_params: Dict,
+        result: Any,
+        attempt: int,
+        max_retries: int,
+        description: str
+    ) -> str:
+        """LLM判断用プロンプトの生成"""
+        # 結果を安全な文字列に変換
+        result_str = safe_str(result)
+        current_params_str = safe_str(current_params)
+        original_params_str = safe_str(original_params)
+        
+        # 現在の会話文脈を取得
+        current_query = getattr(self, 'current_user_query', '（不明）')
+        
+        return f"""あなたはツール実行結果を判断するエキスパートです。以下の実行結果を分析してください。
+
+## 現在実行中のタスク
+タスク: {description or "タスクの説明なし"}
+
+## 実行情報
+- ツール名: {tool}
+- 現在のパラメータ: {current_params_str}
+- 元のパラメータ: {original_params_str}
+- 試行回数: {attempt}/{max_retries + 1}
+- ユーザーの要求: {current_query}
+
+## 実行結果
+{result_str}
+
+## 判断基準
+1. **成功判定**: 期待される結果が得られている
+2. **失敗判定**: エラーメッセージ、構文エラー、実行エラーが含まれている
+3. **リトライ判定**: パラメータを修正すれば成功する可能性がある
+
+## **重要**: パラメータ修正時のルール
+- **現在実行中のタスクの目的を必ず尊重してください**
+- 修正は元のパラメータ（{original_params_str}）を基準に行ってください
+- 他のタスクのパラメータに変更してはいけません
+- 例：「Beijing」の天気取得なら → 「Beijing, CN」等に修正
+- 例：「Tokyo」の天気取得なら → 「Tokyo, JP」等に修正
+
+## 出力形式（JSON）
+{{
+    "is_success": boolean,
+    "needs_retry": boolean,
+    "error_reason": "エラーの理由（失敗時のみ）",
+    "corrected_params": {{元のパラメータを基準とした修正案}},
+    "processed_result": "ユーザー向けの整形済み結果",
+    "summary": "実行結果の要約"
+}}
+
+## 修正例
+- 構文エラー → コードを正しい構文に修正
+- 都市名エラー → 国コード付きに修正（例：Beijing → Beijing, CN）
+- 日本語パラメータ → 英語に変換
+- セミコロン記法 → 複数行に分解"""
+    
+    async def _call_llm_for_judgment(self, prompt: str) -> Dict:
+        """LLMに判断を依頼してJSON結果を返す"""
+        try:
+            response = await self.llm.chat.completions.create(
+                model=self.config["llm"]["model"],
+                messages=[{"role": "system", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.1
+            )
+            
+            raw_response = response.choices[0].message.content
+            self.logger.debug(f"[LLM生レスポンス] {safe_str(raw_response)[:500]}")
+            
+            return json.loads(raw_response)
+            
+        except Exception as e:
+            self.logger.error(f"[LLM判断エラー] {e}")
+            # フォールバック: 成功として扱う
+            return {
+                "is_success": True,
+                "needs_retry": False,
+                "processed_result": "LLM判断に失敗しました。結果をそのまま表示します。",
+                "summary": "LLM判断エラーによるフォールバック"
+            }
+    
+    def _log_judgment_result(self, judgment: Dict):
+        """判断結果の詳細ログ出力"""
+        self.logger.info(f"[LLM判断] 成功: {judgment.get('is_success')}, リトライ必要: {judgment.get('needs_retry')}")
+        
+        if judgment.get('needs_retry'):
+            self.logger.info(f"[LLM理由] {judgment.get('error_reason', '不明')}")
+            if judgment.get('corrected_params'):
+                self.logger.info(f"[LLM修正案] {safe_str(judgment.get('corrected_params'))[:200]}")
+        else:
+            self.logger.info(f"[LLM判断理由] リトライ不要 - {judgment.get('summary', '詳細不明')}")
+    
     async def _generate_adaptive_task_list(self, user_query: str, temperature: float = 0.1) -> List[Dict]:
         """
         クエリの複雑さに応じて適応的にタスクリストを生成
@@ -582,7 +680,7 @@ class MCPAgentV4:
         description: str = ""
     ) -> Dict[str, Any]:
         """
-        LLMによるツール実行結果の判断と処理
+        LLMによるツール実行結果の判断と処理（リファクタリング版）
         
         Args:
             tool: ツール名
@@ -596,90 +694,24 @@ class MCPAgentV4:
         Returns:
             判断結果辞書
         """
-        # 結果を安全な文字列に変換
-        result_str = safe_str(result)
-        current_params_str = safe_str(current_params)
-        original_params_str = safe_str(original_params)
+        # プロンプト生成
+        prompt = self._build_judgment_prompt(
+            tool=tool,
+            current_params=current_params,
+            original_params=original_params,
+            result=result,
+            attempt=attempt,
+            max_retries=max_retries,
+            description=description
+        )
         
-        # 現在の会話文脈を取得
-        current_query = getattr(self, 'current_user_query', '（不明）')
+        # LLM呼び出し
+        judgment = await self._call_llm_for_judgment(prompt)
         
-        prompt = f"""あなたはツール実行結果を判断するエキスパートです。以下の実行結果を分析してください。
-
-## 現在実行中のタスク
-タスク: {description or "タスクの説明なし"}
-
-## 実行情報
-- ツール名: {tool}
-- 現在のパラメータ: {current_params_str}
-- 元のパラメータ: {original_params_str}
-- 試行回数: {attempt}/{max_retries + 1}
-- ユーザーの要求: {current_query}
-
-## 実行結果
-{result_str}
-
-## 判断基準
-1. **成功判定**: 期待される結果が得られている
-2. **失敗判定**: エラーメッセージ、構文エラー、実行エラーが含まれている
-3. **リトライ判定**: パラメータを修正すれば成功する可能性がある
-
-## **重要**: パラメータ修正時のルール
-- **現在実行中のタスクの目的を必ず尊重してください**
-- 修正は元のパラメータ（{original_params_str}）を基準に行ってください
-- 他のタスクのパラメータに変更してはいけません
-- 例：「Beijing」の天気取得なら → 「Beijing, CN」等に修正
-- 例：「Tokyo」の天気取得なら → 「Tokyo, JP」等に修正
-
-## 出力形式（JSON）
-{{
-    "is_success": boolean,
-    "needs_retry": boolean,
-    "error_reason": "エラーの理由（失敗時のみ）",
-    "corrected_params": {{元のパラメータを基準とした修正案}},
-    "processed_result": "ユーザー向けの整形済み結果",
-    "summary": "実行結果の要約"
-}}
-
-## 修正例
-- 構文エラー → コードを正しい構文に修正
-- 都市名エラー → 国コード付きに修正（例：Beijing → Beijing, CN）
-- 日本語パラメータ → 英語に変換
-- セミコロン記法 → 複数行に分解"""
-
-        try:
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.1
-            )
-            
-            raw_response = response.choices[0].message.content
-            self.logger.debug(f"[LLM生レスポンス] {safe_str(raw_response)[:500]}")
-            
-            judgment = json.loads(raw_response)
-            
-            # デバッグログ（詳細版）
-            self.logger.info(f"[LLM判断] 成功: {judgment.get('is_success')}, リトライ必要: {judgment.get('needs_retry')}")
-            if judgment.get('needs_retry'):
-                self.logger.info(f"[LLM理由] {judgment.get('error_reason', '不明')}")
-                if judgment.get('corrected_params'):
-                    self.logger.info(f"[LLM修正案] {safe_str(judgment.get('corrected_params'))[:200]}")
-            else:
-                self.logger.info(f"[LLM判断理由] リトライ不要 - {judgment.get('summary', '詳細不明')}")
-            
-            return judgment
-            
-        except Exception as e:
-            self.logger.error(f"[LLM判断エラー] {e}")
-            # フォールバック: 結果をそのまま返す
-            return {
-                "is_success": True,
-                "needs_retry": False,
-                "processed_result": result_str,
-                "summary": "LLM判断に失敗しました。結果をそのまま表示します。"
-            }
+        # ログ出力
+        self._log_judgment_result(judgment)
+        
+        return judgment
     
     
     async def _execute_planned_task(self, task: Dict, step_num: int, total: int, execution_context: List[Dict] = None) -> Dict:
