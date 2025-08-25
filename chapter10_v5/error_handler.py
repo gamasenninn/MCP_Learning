@@ -217,7 +217,7 @@ class ErrorHandler:
             except Exception as e:
                 self.error_stats["total_errors"] += 1
                 # エラーメッセージからサロゲート文字を除去
-                error_msg = clean_surrogate_chars_error(str(e))
+                error_msg = safe_str(str(e))
                 error_type = self.classify_error(error_msg)
                 
                 if self.verbose:
@@ -245,7 +245,7 @@ class ErrorHandler:
                             if corrected_params and corrected_params != params:
                                 params = corrected_params
                                 if self.verbose:
-                                    safe_params = clean_surrogate_chars_error(str(params))
+                                    safe_params = safe_str(str(params))
                                     print(f"  [修正] パラメータを修正しました: {safe_params}")
                                 # パラメータ修正後は残り試行回数を制限（無限ループ防止）
                                 max_retries = min(max_retries, attempt + 2)

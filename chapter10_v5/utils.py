@@ -12,7 +12,7 @@ from typing import Any
 
 def safe_str(obj: Any, use_repr: bool = False) -> str:
     """
-    オブジェクトをサロゲート文字を除去して文字列化
+    オブジェクトをサロゲート文字を除去して文字列化（最適化版）
     
     Args:
         obj: 文字列に変換するオブジェクト
@@ -25,6 +25,16 @@ def safe_str(obj: Any, use_repr: bool = False) -> str:
     if not isinstance(text, str):
         return text
     
+    # Windows環境でのcp932エンコーディング処理（高速化）
+    if sys.platform == "win32":
+        try:
+            # エンコード/デコードによる一括変換
+            return text.encode('cp932', errors='replace').decode('cp932')
+        except Exception:
+            # フォールバック: 従来の文字ごと処理
+            pass
+    
+    # サロゲート文字のみ除去（非Windows環境またはcp932処理失敗時）
     return ''.join(
         char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
         for char in text
