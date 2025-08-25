@@ -220,17 +220,12 @@ class MCPAgentV4:
             response = execution_result.get("response", "了解しました。")
             self._add_to_history("assistant", response)
             return response
-        elif execution_type == "SIMPLE":
-            # 従来の対話型実行（1-2ステップの単純なタスク）
-            return await self._execute_with_tasklist(user_query, "SIMPLE")
-        elif execution_type == "COMPLEX":
-            # タスクリスト方式（複雑な多段階タスク）
-            return await self._execute_with_tasklist(user_query, "COMPLEX")
         else:
-            return "処理方法を決定できませんでした。"
+            # SIMPLE/COMPLEX統合：全てのツール実行要求を統一メソッドで処理
+            return await self._execute_with_tasklist(user_query)
     
     async def _determine_execution_type(self, user_query: str) -> Dict:
-        """実行方式を判定（プロンプト外部化版）"""
+        """ユーザーの要求がNO_TOOLかツール実行かを判定（SIMPLE/COMPLEX統合後）"""
         recent_context = self._get_recent_context()
         
         # プロンプトテンプレートから取得
@@ -249,19 +244,24 @@ class MCPAgentV4:
             
             content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
+            
+            # SIMPLE/COMPLEX統合のため、NO_TOOL以外は全てTOOLに統一
+            if result.get('type') in ['SIMPLE', 'COMPLEX']:
+                result['type'] = 'TOOL'
+            
             self.logger.info(f"判定: {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}")
             
             return result
             
         except Exception as e:
             print(f"[エラー] 実行方式判定失敗: {e}")
-            return {"type": "SIMPLE", "reason": "判定エラーによりデフォルト選択"}
+            return {"type": "TOOL", "reason": "判定エラーによりデフォルト選択"}
     
-    async def _execute_with_tasklist(self, user_query: str, task_type: str = "SIMPLE") -> str:
-        """統一されたタスクリスト実行メソッド（重複コード統合版）"""
+    async def _execute_with_tasklist(self, user_query: str) -> str:
+        """統一されたタスクリスト実行メソッド（SIMPLE/COMPLEX統合版）"""
         
-        # リトライ機能付きタスクリスト生成
-        task_list = await self._generate_task_list_with_retry(user_query, task_type)
+        # リトライ機能付きタスクリスト生成（統一メソッド使用）
+        task_list = await self._generate_task_list_with_retry(user_query)
         
         if not task_list:
             # タスクリスト生成に失敗した場合のエラーメッセージ
@@ -380,13 +380,69 @@ class MCPAgentV4:
         
         return process_params(params)
     
-    async def _generate_task_list_with_retry(self, user_query: str, task_type: str = "SIMPLE") -> List[Dict]:
+    async def _generate_adaptive_task_list(self, user_query: str, temperature: float = 0.1) -> List[Dict]:
         """
-        リトライ機能付きタスクリスト生成
+        クエリの複雑さに応じて適応的にタスクリストを生成
         
         Args:
             user_query: ユーザークエリ
-            task_type: "SIMPLE" または "COMPLEX"
+            temperature: LLMの温度パラメータ
+            
+        Returns:
+            生成されたタスクリスト
+        """
+        recent_context = self._get_conversation_context_only()
+        tools_info = self.connection_manager.format_tools_for_llm()
+        
+        # カスタム指示の有無で複雑さを判定
+        custom_instructions = self.custom_instructions if self.custom_instructions.strip() else None
+        
+        # プロンプトテンプレートから取得
+        prompt = PromptTemplates.get_adaptive_task_list_prompt(
+            recent_context=recent_context,
+            user_query=user_query,
+            tools_info=tools_info,
+            custom_instructions=custom_instructions
+        )
+
+        try:
+            self.session_stats["total_api_calls"] += 1
+            
+            response = await self.llm.chat.completions.create(
+                model=self.config["llm"]["model"],
+                messages=[{"role": "system", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=temperature
+            )
+            
+            content = safe_str(response.choices[0].message.content)
+            result = json.loads(content)
+            tasks = result.get("tasks", [])
+            
+            # タスク数に応じてログ出力
+            task_type_label = "詳細" if custom_instructions else "シンプル"
+            self.logger.info(f"{task_type_label}タスク: {len(tasks)}個のタスクを生成")
+            for i, task in enumerate(tasks, 1):
+                self.logger.debug(f"  [{i}] Tool: {task.get('tool')}, Params: {safe_str(task.get('params', {}))[:100]}...")
+                self.logger.debug(f"      Description: {task.get('description', 'N/A')}")
+            
+            # シンプルな場合は最大3タスクに制限
+            if not custom_instructions and len(tasks) > 3:
+                self.logger.info(f"タスク数制限: {len(tasks)} → 3（シンプルモード）")
+                tasks = tasks[:3]
+            
+            return tasks
+            
+        except Exception as e:
+            print(f"[エラー] 適応的タスクリスト生成失敗: {e}")
+            return []
+    
+    async def _generate_task_list_with_retry(self, user_query: str) -> List[Dict]:
+        """
+        リトライ機能付き適応的タスクリスト生成
+        
+        Args:
+            user_query: ユーザークエリ
             
         Returns:
             生成されたタスクリスト
@@ -407,12 +463,8 @@ class MCPAgentV4:
                 else:
                     temperature = initial_temp
                 
-                if task_type == "SIMPLE":
-                    task_list = await self._generate_simple_task_list_with_temp(user_query, temperature)
-                elif task_type == "COMPLEX":
-                    task_list = await self._generate_complex_task_list_with_temp(user_query, temperature)
-                else:
-                    return []
+                # 統一された適応的タスクリスト生成を使用
+                task_list = await self._generate_adaptive_task_list(user_query, temperature)
                 
                 if task_list:
                     # 成功時はメトリクスを更新
@@ -424,7 +476,7 @@ class MCPAgentV4:
                     if attempt > 0:
                         self.logger.info(f"[成功] タスクリスト生成 - {attempt + 1}回目の試行で成功")
                     
-                    # タスク数制限
+                    # タスク数制限（全体的な上限）
                     max_tasks = self.config.get("execution", {}).get("max_tasks", 10)
                     if len(task_list) > max_tasks:
                         self.logger.warning(f"タスク数制限: {len(task_list)} → {max_tasks}")
@@ -455,48 +507,6 @@ class MCPAgentV4:
         return []
 
     
-    async def _generate_simple_task_list(self, user_query: str) -> List[Dict]:
-        """シンプルなタスク用のタスクリスト生成（プロンプト外部化版）"""
-        return await self._generate_simple_task_list_with_temp(user_query, 0.1)
-    
-    async def _generate_simple_task_list_with_temp(self, user_query: str, temperature: float = 0.1) -> List[Dict]:
-        """温度パラメータ指定可能なシンプルタスクリスト生成"""
-        recent_context = self._get_conversation_context_only()
-        tools_info = self.connection_manager.format_tools_for_llm()
-        
-        # プロンプトテンプレートから取得
-        prompt = PromptTemplates.get_simple_task_list_prompt(
-            recent_context=recent_context,
-            user_query=user_query,
-            tools_info=tools_info
-        )
-
-        try:
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=temperature
-            )
-            
-            content = safe_str(response.choices[0].message.content)
-            result = json.loads(content)
-            tasks = result.get("tasks", [])
-            
-            self.logger.info(f"シンプルタスク: {len(tasks)}個のタスクを生成")
-            for i, task in enumerate(tasks, 1):
-                self.logger.debug(f"  [{i}] Tool: {task.get('tool')}, Params: {safe_str(task.get('params', {}))[:200]}...")
-                self.logger.debug(f"      Description: {task.get('description', 'N/A')}")
-            
-            # 最大3タスクに制限
-            if len(tasks) > 3:
-                tasks = tasks[:3]
-            
-            return tasks
-            
-        except Exception as e:
-            print(f"[エラー] シンプルタスクリスト生成失敗: {e}")
-            return []
     
     async def _execute_tool_with_retry(self, tool: str, params: Dict, description: str = "") -> Any:
         """
@@ -671,48 +681,6 @@ class MCPAgentV4:
                 "summary": "LLM判断に失敗しました。結果をそのまま表示します。"
             }
     
-    async def _generate_task_list(self, user_query: str) -> List[Dict]:
-        """タスクリストを事前生成（プロンプト外部化版）"""
-        return await self._generate_complex_task_list_with_temp(user_query, 0.1)
-    
-    async def _generate_complex_task_list_with_temp(self, user_query: str, temperature: float = 0.1) -> List[Dict]:
-        """温度パラメータ指定可能な複雑タスクリスト生成"""
-        recent_context = self._get_conversation_context_only()
-        tools_info = self.connection_manager.format_tools_for_llm()
-        
-        # プロンプトテンプレートから取得
-        prompt = PromptTemplates.get_complex_task_list_prompt(
-            recent_context=recent_context,
-            user_query=user_query,
-            tools_info=tools_info,
-            custom_instructions=self.custom_instructions
-        )
-
-        try:
-            self.session_stats["total_api_calls"] += 1
-            
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=temperature
-            )
-            
-            content = safe_str(response.choices[0].message.content)
-            result = json.loads(content)
-            tasks = result.get("tasks", [])
-            
-            if self.verbose:
-                print(f"[計画] {len(tasks)}個のタスクを生成")
-                for i, task in enumerate(tasks, 1):
-                    print(f"  [{i}] Tool: {task.get('tool')}, Params: {safe_str(task.get('params', {}))[:100]}...")
-                    print(f"      Description: {task.get('description', 'N/A')}")
-            
-            return tasks
-            
-        except Exception as e:
-            print(f"[エラー] タスクリスト生成失敗: {e}")
-            return []
     
     async def _execute_planned_task(self, task: Dict, step_num: int, total: int, execution_context: List[Dict] = None) -> Dict:
         """計画されたタスクを実行"""

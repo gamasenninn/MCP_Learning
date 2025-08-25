@@ -60,6 +60,100 @@ NO_TOOLの場合：
 ```json
 {{"type": "SIMPLE|COMPLEX", "reason": "判定理由"}}
 ```"""
+
+    @staticmethod
+    def get_adaptive_task_list_prompt(
+        recent_context: Optional[str],
+        user_query: str,
+        tools_info: str,
+        custom_instructions: Optional[str] = None
+    ) -> str:
+        """
+        クエリの複雑さに応じて適応的なタスクリスト生成プロンプトを生成
+        
+        Args:
+            recent_context: 最近の会話文脈
+            user_query: ユーザーの要求
+            tools_info: 利用可能なツール情報
+            custom_instructions: カスタム指示（オプション）
+            
+        Returns:
+            適応的なタスクリスト生成プロンプト
+        """
+        context_section = recent_context if recent_context else "（新規会話）"
+        
+        # カスタム指示がある場合は複雑タスク用の詳細プロンプト
+        if custom_instructions:
+            custom_section = custom_instructions
+            max_tasks_note = "必要最小限のタスクで構成し、効率的な実行計画を作成してください。"
+            database_rules = """
+## データベース操作の必須ルール（重要）
+データベース関連の要求は必ず以下の3ステップ：
+1. list_tables - テーブル一覧確認
+2. get_table_schema - 対象テーブルのスキーマ確認  
+3. execute_safe_query - 実際のクエリ実行
+
+## データベース表示ルール
+- 「一覧」「全件」「すべて」→ LIMIT 20（適度な件数）
+- 「少し」「いくつか」→ LIMIT 5
+- 「全部」「制限なし」→ LIMIT 50（最大）
+- 「1つ」「最高」「最安」→ LIMIT 1
+
+例：「商品データ一覧を表示して」
+→ [
+  {{"tool": "list_tables", "description": "テーブル一覧を確認"}},
+  {{"tool": "get_table_schema", "params": {{"table_name": "products"}}, "description": "商品テーブルのスキーマを確認"}},
+  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを20件表示"}}
+]
+"""
+        else:
+            custom_section = "なし"
+            max_tasks_note = "1-3個の必要最小限のタスクで構成してください。"
+            database_rules = ""
+        
+        return f"""ユーザーの要求を分析し、実行に必要なタスクリストを生成してください。
+
+## 最近の会話
+{context_section}
+
+## ユーザーの要求
+{user_query}
+
+## 利用可能なツール
+{tools_info}
+
+## カスタム指示
+{custom_section}
+
+{database_rules}
+
+## 指針
+- 計算の場合は演算順序を考慮
+- 天気等の単純API呼び出しは1つのタスクで完結
+- {max_tasks_note}
+
+## タスク依存関係の表現
+前のタスクの結果を使用する場合：
+- `"取得した都市名"` - IP情報から取得した都市
+- `"{{{{previous_result}}}}"` - 直前のタスク結果
+- `"{{{{task_1.city}}}}"` - 1番目のタスクのcityフィールド
+
+例：「IPから現在地を調べて天気を取得」
+```json
+{{"tasks": [
+  {{"tool": "get_ip_info", "params": {{}}, "description": "現在のIPアドレスの地理的情報を取得する"}},
+  {{"tool": "get_weather", "params": {{"city": "取得した都市名"}}, "description": "取得した都市の現在の天気を取得する"}}
+]}}
+```
+
+## 出力形式
+```json
+{{"tasks": [
+  {{"tool": "ツール名", "params": {{"param": "値"}}, "description": "何をするかの説明"}},
+  ...
+]}}
+```"""
+    
     @staticmethod
     def get_simple_task_list_prompt(
         recent_context: Optional[str],
