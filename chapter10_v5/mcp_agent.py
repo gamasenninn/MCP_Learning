@@ -23,6 +23,7 @@ from connection_manager import ConnectionManager
 from display_manager import DisplayManager
 from error_handler import ErrorHandler
 from prompts import PromptTemplates
+from utils import Logger
 
 # Rich UI support
 try:
@@ -32,49 +33,25 @@ except ImportError:
     RICH_AVAILABLE = False
 
 
-def clean_surrogate_chars(text: str) -> str:
+def safe_str(obj: Any, use_repr: bool = False) -> str:
     """
-    サロゲート文字を除去するユーティリティ関数
+    オブジェクトをサロゲート文字を除去して文字列化
     
     Args:
-        text: 処理対象の文字列
+        obj: 文字列に変換するオブジェクト
+        use_repr: Trueならrepr()、Falseならstr()を使用
         
     Returns:
-        サロゲート文字を'?'に置換した文字列
+        サロゲート文字が除去された文字列
     """
+    text = repr(obj) if use_repr else str(obj)
     if not isinstance(text, str):
-        return str(text)
+        return text
     
     return ''.join(
         char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
         for char in text
     )
-
-
-def safe_str(obj: Any) -> str:
-    """
-    サロゲート文字を安全に処理する文字列変換
-    
-    Args:
-        obj: 文字列に変換するオブジェクト
-        
-    Returns:
-        サロゲート文字が除去された文字列
-    """
-    return clean_surrogate_chars(str(obj))
-
-
-def safe_repr(obj: Any) -> str:
-    """
-    サロゲート文字を安全に処理するrepr変換
-    
-    Args:
-        obj: repr文字列に変換するオブジェクト
-        
-    Returns:
-        サロゲート文字が除去されたrepr文字列
-    """
-    return clean_surrogate_chars(repr(obj))
 
 
 class MCPAgentV4:
@@ -143,34 +120,27 @@ class MCPAgentV4:
         # AGENT.md読み込み（V3から継承）
         self.custom_instructions = self._load_agent_md()
         
-        # verboseフラグを統一
+        # Loggerを初期化
         self.verbose = self.config.get("development", {}).get("verbose", True)
+        self.logger = Logger(verbose=self.verbose)
         
         if self.verbose:
             self.display.show_banner()
             if self.ui_mode == "rich":
-                print(f"[INFO] Rich UI mode enabled")
+                self.logger.info("Rich UI mode enabled")
             else:
-                print(f"[INFO] Basic UI mode enabled")
+                self.logger.info("Basic UI mode enabled")
     
     def _load_config(self, config_path: str) -> Dict:
-        """設定ファイルを読み込み"""
+        """設定ファイルを読み込み（必須）"""
         if not os.path.exists(config_path):
-            # デフォルト設定
-            return {
-                "display": {"show_timing": True, "show_thinking": False},
-                "execution": {"max_retries": 3, "timeout_seconds": 30},
-                "llm": {"model": "gpt-4o-mini", "temperature": 0.2},
-                "conversation": {"context_limit": 3},
-                "development": {"verbose": True}
-            }
+            raise FileNotFoundError(
+                f"設定ファイル '{config_path}' が見つかりません。\n"
+                f"'config.sample.yaml' を '{config_path}' にコピーしてください。"
+            )
         
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
-        except Exception as e:
-            print(f"[警告] 設定ファイル読み込みエラー: {e}")
-            return {}
+        with open(config_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
     
     def _load_agent_md(self) -> str:
         """AGENT.mdを読み込み（V3から継承）"""
@@ -180,7 +150,9 @@ class MCPAgentV4:
             try:
                 with open(agent_md_path, "r", encoding="utf-8") as f:
                     content = f.read()
-                if self.config.get("development", {}).get("verbose", False):
+                if hasattr(self, 'logger'):
+                    self.logger.config_info(f"AGENT.mdを読み込みました ({len(content)}文字)")
+                elif self.config.get("development", {}).get("verbose", False):
                     print(f"[設定] AGENT.mdを読み込みました ({len(content)}文字)")
                 return content
             except Exception as e:
@@ -255,10 +227,10 @@ class MCPAgentV4:
             return response
         elif execution_type == "SIMPLE":
             # 従来の対話型実行（1-2ステップの単純なタスク）
-            return await self._execute_simple_dialogue(user_query)
+            return await self._execute_with_tasklist(user_query, "SIMPLE")
         elif execution_type == "COMPLEX":
             # タスクリスト方式（複雑な多段階タスク）
-            return await self._execute_planned_dialogue(user_query)
+            return await self._execute_with_tasklist(user_query, "COMPLEX")
         else:
             return "処理方法を決定できませんでした。"
     
@@ -280,10 +252,9 @@ class MCPAgentV4:
                 temperature=0.1
             )
             
-            content = clean_surrogate_chars(response.choices[0].message.content)
+            content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
-            if self.verbose:
-                print(f"[判定] {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}")
+            self.logger.info(f"判定: {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}")
             
             return result
             
@@ -414,9 +385,6 @@ class MCPAgentV4:
         
         return process_params(params)
 
-    async def _execute_simple_dialogue(self, user_query: str) -> str:
-        """単純なタスクの実行（統一メソッド使用版）"""
-        return await self._execute_with_tasklist(user_query, "SIMPLE")
     
     async def _generate_simple_task_list(self, user_query: str) -> List[Dict]:
         """シンプルなタスク用のタスクリスト生成（プロンプト外部化版）"""
@@ -438,15 +406,14 @@ class MCPAgentV4:
                 temperature=0.1
             )
             
-            content = clean_surrogate_chars(response.choices[0].message.content)
+            content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
             tasks = result.get("tasks", [])
             
-            if self.verbose:
-                print(f"[シンプルタスク] {len(tasks)}個のタスクを生成")
-                for i, task in enumerate(tasks, 1):
-                    print(f"  [{i}] Tool: {task.get('tool')}, Params: {safe_str(task.get('params', {}))[:200]}...")
-                    print(f"      Description: {task.get('description', 'N/A')}")
+            self.logger.info(f"シンプルタスク: {len(tasks)}個のタスクを生成")
+            for i, task in enumerate(tasks, 1):
+                self.logger.debug(f"  [{i}] Tool: {task.get('tool')}, Params: {safe_str(task.get('params', {}))[:200]}...")
+                self.logger.debug(f"      Description: {task.get('description', 'N/A')}")
             
             # 最大3タスクに制限
             if len(tasks) > 3:
@@ -483,9 +450,6 @@ class MCPAgentV4:
         return "最大ステップ数に到達しました。処理を完了します。"
     
     
-    async def _execute_planned_dialogue(self, user_query: str) -> str:
-        """タスクリスト方式の実行（統一メソッド使用版）"""
-        return await self._execute_with_tasklist(user_query, "COMPLEX")
     
     def _detect_loop(self, context: List[Dict], threshold: int = 3) -> bool:
         """無限ループ検出"""
@@ -532,7 +496,7 @@ class MCPAgentV4:
                 temperature=self.config["llm"]["temperature"]
             )
             
-            content = clean_surrogate_chars(response.choices[0].message.content)
+            content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
             return result
             
@@ -654,7 +618,7 @@ class MCPAgentV4:
                 temperature=0.1
             )
             
-            content = clean_surrogate_chars(response.choices[0].message.content)
+            content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
             tasks = result.get("tasks", [])
             
@@ -687,7 +651,7 @@ class MCPAgentV4:
         if self.verbose and tool == "execute_python":
             print(f"[DEBUG] About to execute {tool} with full params:")
             for k, v in params.items():
-                print(f"  {k}: {safe_repr(v)}")
+                print(f"  {k}: {safe_str(v, use_repr=True)}")
         
         self.display.show_tool_call(tool, params)
         
@@ -918,10 +882,13 @@ async def main():
         print("-" * 60)
         
         while True:
-            if hasattr(agent.display, 'input_prompt') and agent.ui_mode == "rich":
-                user_input = agent.display.input_prompt("Agent").strip()
-            else:
-                user_input = input("\nAgent> ").strip()
+            try:
+                if hasattr(agent.display, 'input_prompt') and agent.ui_mode == "rich":
+                    user_input = agent.display.input_prompt("Agent").strip()
+                else:
+                    user_input = input("\nAgent> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
             
             if user_input.lower() in ['quit', 'exit', '終了']:
                 break

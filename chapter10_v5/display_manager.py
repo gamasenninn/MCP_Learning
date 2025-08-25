@@ -15,17 +15,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 
-def safe_str_display(obj: Any) -> str:
-    """
-    表示用の安全な文字列変換（サロゲート文字を除去）
-    """
-    if not isinstance(obj, str):
-        obj = str(obj)
-    
-    return ''.join(
-        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-        for char in obj
-    )
+from utils import safe_str
 
 
 class DisplayManager:
@@ -82,26 +72,19 @@ class DisplayManager:
             print(line)
     
     def _get_status_icon(self, index: int, current_index: int, status: str) -> str:
-        """タスクの状態に応じたアイコンを返す"""
-        if status == 'completed':
+        """タスクの状態に応じたアイコンを返す（統一版）"""
+        if status in ['completed']:
             return "[x]"  # 完了
-        elif status == 'failed':
+        elif status in ['failed']:
             return "[!]"  # 失敗
-        elif index == current_index:
+        elif status in ['running'] or index == current_index:
             return "[>]"  # 実行中
         else:
             return "[ ]"  # 未実行
     
     def show_checklist(self, tasks: List[Dict], current: int = -1):
-        """チェックリスト形式でタスク一覧を表示"""
-        if not tasks:
-            return
-        
-        print("\n[タスクリスト]")
-        for i, task in enumerate(tasks):
-            icon = self._get_checklist_icon(i, current, task.get('status', 'pending'))
-            description = task.get('description', task.get('tool', 'Unknown'))
-            print(f"  {icon} {description}")
+        """チェックリスト形式でタスク一覧を表示（統一版）"""
+        self.show_task_list(tasks, current)
     
     def update_checklist(self, tasks: List[Dict], current: int, completed: List[int] = None, failed: List[int] = None):
         """チェックリストの状態を更新して表示"""
@@ -123,7 +106,7 @@ class DisplayManager:
             else:
                 status = 'pending'
             
-            icon = self._get_checklist_icon(i, current, status)
+            icon = self._get_status_icon(i, current, status)
             description = task.get('description', task.get('tool', 'Unknown'))
             
             line = f"  {icon} {description}"
@@ -136,16 +119,6 @@ class DisplayManager:
             
             print(line)
     
-    def _get_checklist_icon(self, index: int, current_index: int, status: str) -> str:
-        """チェックリストのアイコンを取得"""
-        if status == 'completed':
-            return "[x]"  # 完了
-        elif status == 'failed':
-            return "[!]"  # 失敗
-        elif status == 'running' or index == current_index:
-            return "[>]"  # 実行中
-        else:
-            return "[ ]"  # 未実行
     
     def show_step_start(self, step_num: int, total: int, description: str):
         """ステップ開始を表示"""
@@ -211,8 +184,8 @@ class DisplayManager:
             # パラメータを簡潔に表示（サロゲート文字を安全に処理）
             param_items = []
             for k, v in params.items():
-                safe_key = safe_str_display(k)
-                safe_value = safe_str_display(v)
+                safe_key = safe_str(k)
+                safe_value = safe_str(v)
                 param_items.append(f"{safe_key}={safe_value}")
             
             param_str = ", ".join(param_items)

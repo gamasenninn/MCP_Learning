@@ -19,28 +19,10 @@ from dotenv import load_dotenv
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-# Windows環境でのUnicode対応
-if sys.platform == "win32":
-    import io
-    os.environ["PYTHONIOENCODING"] = "utf-8"
-    
-    # Windows環境でのUTF-8エンコーディング問題対策
-    # 標準出力をUTF-8でerrors='replace'に設定（絵文字エラー防止）
-    try:
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    except AttributeError:
-        # Python 3.7未満の場合のフォールバック
-        sys.stdout = io.TextIOWrapper(
-            sys.stdout.buffer,
-            encoding='utf-8',
-            errors='replace'
-        )
-        sys.stderr = io.TextIOWrapper(
-            sys.stderr.buffer,
-            encoding='utf-8', 
-            errors='replace'
-        )
+from utils import setup_windows_encoding
+
+# Windows環境設定
+setup_windows_encoding()
 
 load_dotenv()
 

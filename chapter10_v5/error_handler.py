@@ -17,23 +17,7 @@ from typing import Dict, Any, Optional, Callable
 from openai import AsyncOpenAI
 
 
-def clean_surrogate_chars_error(text: str) -> str:
-    """
-    エラー処理用のサロゲート文字除去関数
-    
-    Args:
-        text: 処理対象の文字列
-        
-    Returns:
-        サロゲート文字を'?'に置換した文字列
-    """
-    if not isinstance(text, str):
-        return str(text)
-    
-    return ''.join(
-        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-        for char in text
-    )
+from utils import safe_str
 
 
 class ErrorHandler:

@@ -61,12 +61,12 @@ print("処理完了")
 
 ### 良い例
 ```python
-print("フィボナッチ数列生成開始...")
+print("処理開始...")
 fib = [0, 1]
 for i in range(2, 10):
     fib.append(fib[-1] + fib[-2])
 print(f"結果: {fib}")
-print("完了")
+print("処理完了")
 ```
 
 ## エラー対処

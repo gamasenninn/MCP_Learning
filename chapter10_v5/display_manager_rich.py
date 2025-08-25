@@ -17,23 +17,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 
-def clean_surrogate_chars_display(text: str) -> str:
-    """
-    Rich表示用のサロゲート文字除去関数
-    
-    Args:
-        text: 処理対象の文字列
-        
-    Returns:
-        サロゲート文字を'?'に置換した文字列
-    """
-    if not isinstance(text, str):
-        return str(text)
-    
-    return ''.join(
-        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-        for char in text
-    )
+from utils import safe_str
 
 # Rich imports (optional dependency)
 try:
@@ -253,12 +237,12 @@ class RichDisplayManager:
         # 内容がJSONの場合は構文ハイライト
         try:
             # サロゲート文字を除去してからJSON処理
-            clean_content = clean_surrogate_chars_display(content)
+            clean_content = safe_str(content)
             json.loads(clean_content)
             formatted_content = Syntax(clean_content, "json", theme="monokai", line_numbers=False)
         except:
             # JSONでない場合は普通のテキスト（サロゲート文字も除去）
-            formatted_content = clean_surrogate_chars_display(content)
+            formatted_content = safe_str(content)
         
         panel = Panel(
             formatted_content,
@@ -343,14 +327,14 @@ class RichDisplayManager:
                 self.console.print(f"    [dim]実行するコード:[/dim]")
                 from rich.syntax import Syntax
                 # サロゲート文字を除去してからSyntax処理
-                clean_code = clean_surrogate_chars_display(code_param)
+                clean_code = safe_str(code_param)
                 code_display = Syntax(clean_code, "python", theme="monokai", line_numbers=True)
                 self.console.print(code_display)
                 
                 # その他のパラメータがあれば表示
                 other_params = {k: v for k, v in params.items() if k != code_key}
                 if other_params:
-                    param_str = clean_surrogate_chars_display(str(other_params))
+                    param_str = safe_str(str(other_params))
                     if len(param_str) < 100:
                         param_text = param_str
                     else:
@@ -358,7 +342,7 @@ class RichDisplayManager:
                     self.console.print(f"    [dim]その他のパラメータ: {param_text}[/dim]")
             else:
                 # 通常のパラメータ表示
-                param_str = clean_surrogate_chars_display(str(params))
+                param_str = safe_str(str(params))
                 if len(param_str) < 200:
                     param_text = param_str
                 else:
