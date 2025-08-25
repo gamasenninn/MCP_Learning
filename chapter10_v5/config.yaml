@@ -63,6 +63,9 @@ execution:
     progressive_temperature: true
     initial_temperature: 0.1
     temperature_increment: 0.2
+  
+  # パラメータ解決方式: placeholder (従来), llm_based (新方式), hybrid (段階的移行)
+  parameter_resolution_mode: "llm_based"
 
 # LLM設定
 llm:

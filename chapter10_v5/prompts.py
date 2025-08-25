@@ -20,7 +20,8 @@ class PromptTemplates:
     @staticmethod
     def get_execution_type_determination_prompt(
         recent_context: Optional[str],
-        user_query: str
+        user_query: str,
+        tools_info: Optional[str] = None
     ) -> str:
         """
         実行方式判定用のプロンプトを生成
@@ -28,11 +29,13 @@ class PromptTemplates:
         Args:
             recent_context: 最近の会話文脈
             user_query: ユーザーの要求
+            tools_info: 利用可能なツール情報
             
         Returns:
             実行方式判定用プロンプト
         """
         context_section = recent_context if recent_context else "（新規会話）"
+        tools_section = tools_info if tools_info else "（ツール情報の取得に失敗しました）"
         
         return f"""ユーザーの要求を分析し、適切な実行方式を判定してください。
 
@@ -42,13 +45,19 @@ class PromptTemplates:
 ## ユーザーの要求
 {user_query}
 
+## 利用可能なツール
+{tools_section}
+
 ## 判定基準
 - **NO_TOOL**: 日常会話（挨拶・雑談・自己紹介・感想・お礼等のみ）
 - **SIMPLE**: 1-2ステップの単純なタスク（計算、単一API呼び出し等）
 - **COMPLEX**: データベース操作、多段階処理等
 
 ## 重要な注意
-- 「天気」「温度」「気象」等は外部APIが必要なのでNO_TOOLではありません！
+- 上記のツール一覧を確認し、実行可能なタスクかどうか判定してください
+- 「天気」「温度」「気象」→外部APIツールが必要
+- 「商品」「データベース」「一覧」→データベースツールが必要
+- 利用可能なツールで実行可能な場合はNO_TOOLではありません！
 
 ## 出力形式
 NO_TOOLの場合：
@@ -113,10 +122,7 @@ NO_TOOLの場合：
         
         return f"""ユーザーの要求を分析し、実行に必要なタスクリストを生成してください。
 
-## 最近の会話
-{context_section}
-
-## ユーザーの要求
+## 現在のユーザー要求（独立して処理）
 {user_query}
 
 ## 利用可能なツール
@@ -124,6 +130,9 @@ NO_TOOLの場合：
 
 ## カスタム指示
 {custom_section}
+
+## 注意: 以下は参考文脈のみ（現在の要求とは独立して扱う）
+最近の会話: {context_section}
 
 {database_rules}
 

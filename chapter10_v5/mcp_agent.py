@@ -228,10 +228,14 @@ class MCPAgentV4:
         """ユーザーの要求がNO_TOOLかツール実行かを判定（SIMPLE/COMPLEX統合後）"""
         recent_context = self._get_recent_context()
         
+        # 利用可能なツール情報を取得
+        tools_info = self.connection_manager.format_tools_for_llm()
+        
         # プロンプトテンプレートから取得
         prompt = PromptTemplates.get_execution_type_determination_prompt(
             recent_context=recent_context,
-            user_query=user_query
+            user_query=user_query,
+            tools_info=tools_info
         )
 
         try:
@@ -365,6 +369,112 @@ class MCPAgentV4:
                 return replace_value(obj)
         
         return process_params(params)
+    
+    def _format_context_for_llm(self, execution_context: List[Dict]) -> str:
+        """実行コンテキストをLLM用に整形"""
+        if not execution_context:
+            return "（まだ実行結果なし）"
+        
+        formatted_context = []
+        for i, ctx in enumerate(execution_context, 1):
+            tool = ctx.get("tool", "不明")
+            result = safe_str(ctx.get("result", ""))[:200]  # 最初の200文字
+            description = ctx.get("description", f"{tool}を実行")
+            
+            formatted_context.append(f"ステップ{i}: {description}")
+            formatted_context.append(f"  ツール: {tool}")
+            formatted_context.append(f"  結果: {result}")
+            if len(safe_str(ctx.get("result", ""))) > 200:
+                formatted_context.append("  （結果が長いため省略...）")
+        
+        return "\n".join(formatted_context)
+    
+    async def _resolve_params_with_llm(self, task: Dict, execution_context: List[Dict]) -> Dict:
+        """LLMが文脈を理解してパラメータを適切に解決"""
+        tool = task.get("tool", "")
+        params = task.get("params", {})
+        description = task.get("description", "")
+        
+        # LLMが理解すべき複雑なパラメータが含まれているかチェック
+        params_str = str(params)
+        if not any(indicator in params_str for indicator in ["[前の", "取得した", "{{", "前回の", "結果を"]):
+            # 複雑なパラメータがない場合は従来処理
+            return params
+        
+        # LLMにパラメータ解決を依頼
+        context_str = self._format_context_for_llm(execution_context)
+        
+        prompt = f"""実行予定のタスクのパラメータを、これまでの実行結果から適切に決定してください。
+
+## 実行予定のタスク
+- ツール: {tool}
+- 説明: {description}
+- 元のパラメータ: {json.dumps(params, ensure_ascii=False)}
+
+## これまでの実行結果
+{context_str}
+
+## 指示
+上記の実行結果から、このタスクに最適なパラメータ値を決定してください。
+
+例:
+- "[前のタスクで取得した都市名]" → IPアドレス結果から "Tokyo" を抽出
+- "[前回の結果]" → 前のタスクの具体的な値を使用
+- "{{previous_result}}" → 前のタスクの結果をそのまま使用
+
+## 出力形式（JSON）
+```json
+{{
+  "resolved_params": {{実際のパラメータ値}},
+  "reasoning": "パラメータを決定した理由"
+}}
+```"""
+
+        try:
+            response = await self.llm.chat.completions.create(
+                model=self.config["llm"]["model"],
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            
+            response_text = response.choices[0].message.content
+            
+            # JSONブロックを抽出
+            import re
+            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+                resolved_params = result.get("resolved_params", params)
+                reasoning = result.get("reasoning", "")
+                
+                if self.verbose:
+                    print(f"[パラメータ解決] {reasoning}")
+                
+                return resolved_params
+            
+            if self.verbose:
+                print(f"[パラメータ解決失敗] JSON解析エラー: {response_text[:100]}...")
+            return params
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"[パラメータ解決エラー] {e}")
+            return params
+    
+    async def _resolve_params_hybrid(self, task: Dict, execution_context: List[Dict]) -> Dict:
+        """ハイブリッド型パラメータ解決（簡単なケースは従来、複雑なケースはLLM）"""
+        params = task.get("params", {})
+        
+        # まず従来の方式で簡単なプレースホルダーを処理
+        resolved_params = self._resolve_placeholders(params, execution_context)
+        
+        # 複雑なケース（自然言語的な記述）があるかチェック
+        params_str = str(resolved_params)
+        if any(indicator in params_str for indicator in ["[前の", "取得した", "前回の", "結果を"]):
+            # 複雑なケースはLLMに委ねる
+            return await self._resolve_params_with_llm(task, execution_context)
+        
+        return resolved_params
     
     def _build_judgment_prompt(
         self, 
@@ -706,9 +816,16 @@ class MCPAgentV4:
         params = task.get("params", {})
         description = task.get("description", f"{tool}を実行")
         
-        # プレースホルダー置換処理
+        # パラメータ解決処理（設定に応じて方式を選択）
         if execution_context:
-            params = self._resolve_placeholders(params, execution_context)
+            resolution_mode = self.config.get("execution", {}).get("parameter_resolution_mode", "placeholder")
+            
+            if resolution_mode == "llm_based":
+                params = await self._resolve_params_with_llm(task, execution_context)
+            elif resolution_mode == "hybrid":
+                params = await self._resolve_params_hybrid(task, execution_context)
+            else:  # placeholder (従来方式)
+                params = self._resolve_placeholders(params, execution_context)
         
         # ステップ開始の表示
         self.display.show_step_start(step_num, "?", description)
