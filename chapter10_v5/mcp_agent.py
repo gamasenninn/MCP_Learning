@@ -352,20 +352,6 @@ class MCPAgentV4:
                         placeholder = f"{{{{task_{task_num}.{field}}}}}"
                         value = value.replace(placeholder, str(task_result[field]))
             
-            # 文字列パターンマッチング（IP地理情報 → 天気用）
-            if value in ["取得した都市名", "取得した都市", "都市名"]:
-                # 最新の結果から都市情報を探す
-                for result_data in reversed(execution_context):
-                    result = result_data.get("result", {})
-                    if isinstance(result, dict):
-                        # IPアドレス情報から都市を取得
-                        if "city" in result:
-                            return result["city"]
-                        elif "市" in str(result) or "区" in str(result):
-                            # 日本の市区情報を検索
-                            city_match = re.search(r'([^、]+[市区])', str(result))
-                            if city_match:
-                                return city_match.group(1)
             
             return value
         
