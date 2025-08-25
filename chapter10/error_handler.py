@@ -1,473 +1,307 @@
 #!/usr/bin/env python3
 """
-基本的なエラーハンドラー
-エラーの分類、リトライ戦略、フォールバック処理を実装
+Error Handler for MCP Agent V4
+エラー処理の一元管理司令塔
+
+すべてのエラー処理をこのクラスで統一管理：
+- エラー分類
+- LLMによるパラメータ修正
+- リトライ処理
+- エラーログ出力
 """
 
 import asyncio
-import time
-import traceback
-from typing import Dict, List, Any, Optional, Callable
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
 import json
 import re
+from typing import Dict, Any, Optional, Callable
+from openai import AsyncOpenAI
 
-class ErrorSeverity(Enum):
-    """エラーの重要度"""
-    LOW = "low"          # 無視可能（警告レベル）
-    MEDIUM = "medium"    # リトライ推奨
-    HIGH = "high"        # 即時対応必要
-    CRITICAL = "critical" # システム停止レベル
 
-class ErrorCategory(Enum):
-    """エラーのカテゴリ"""
-    CONNECTION = "connection"    # 接続エラー
-    TIMEOUT = "timeout"          # タイムアウト
-    VALIDATION = "validation"    # 検証エラー
-    PERMISSION = "permission"    # 権限エラー
-    NOT_FOUND = "not_found"      # リソース不在
-    RATE_LIMIT = "rate_limit"    # レート制限
-    SYNTAX = "syntax"            # 構文エラー
-    RUNTIME = "runtime"          # 実行時エラー
-    UNKNOWN = "unknown"          # 不明なエラー
+from utils import safe_str
 
-@dataclass
-class ErrorContext:
-    """エラーコンテキスト"""
-    error: Exception
-    task: str
-    operation: Optional[str] = None
-    context: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
-    traceback_str: Optional[str] = None
+
+class ErrorHandler:
+    """
+    エラー処理司令塔クラス
     
-    def __post_init__(self):
-        if self.traceback_str is None and self.error:
-            self.traceback_str = traceback.format_exc()
-
-@dataclass
-class ErrorResolution:
-    """エラー解決策"""
-    strategy: str  # retry, skip, fallback, abort
-    description: str
-    severity: ErrorSeverity
-    category: ErrorCategory
-    retry_params: Optional[Dict[str, Any]] = None
-    fallback_action: Optional[Callable] = None
-    max_retries: int = 3
-    retry_delay: float = 1.0
-    exponential_backoff: bool = True
-
-class BasicErrorHandler:
-    """基本的なエラーハンドラー"""
+    すべてのエラー処理を一元管理し、適切な対応を自動選択
+    """
     
-    def __init__(self, verbose: bool = True):
+    def __init__(self, config: Dict, llm: Optional[AsyncOpenAI] = None, verbose: bool = True):
+        """
+        Args:
+            config: 設定辞書
+            llm: OpenAI LLMクライアント（パラメータ修正用）
+            verbose: 詳細ログ出力
+        """
+        self.config = config
+        self.llm = llm
         self.verbose = verbose
-        self.error_history: List[ErrorContext] = []
-        self.error_patterns = self._init_error_patterns()
-        self.resolution_cache: Dict[str, ErrorResolution] = {}
+        
+        # エラー統計
         self.error_stats = {
-            "total": 0,
-            "resolved": 0,
-            "retried": 0,
-            "skipped": 0,
-            "aborted": 0
+            "total_errors": 0,
+            "param_errors": 0,
+            "transient_errors": 0,
+            "unknown_errors": 0,
+            "auto_fixed": 0,
+            "retry_success": 0
         }
     
-    def _init_error_patterns(self) -> Dict[str, Dict[str, Any]]:
-        """エラーパターンを初期化"""
-        return {
-            # 接続エラー
-            r"connection|refused|unreachable|offline": {
-                "category": ErrorCategory.CONNECTION,
-                "severity": ErrorSeverity.MEDIUM,
-                "strategy": "retry",
-                "max_retries": 5,
-                "retry_delay": 2.0
-            },
-            # タイムアウトエラー
-            r"timeout|timed out|deadline exceeded": {
-                "category": ErrorCategory.TIMEOUT,
-                "severity": ErrorSeverity.MEDIUM,
-                "strategy": "retry",
-                "max_retries": 3,
-                "retry_delay": 1.0
-            },
-            # 権限エラー
-            r"permission|denied|unauthorized|forbidden": {
-                "category": ErrorCategory.PERMISSION,
-                "severity": ErrorSeverity.HIGH,
-                "strategy": "abort",
-                "max_retries": 0
-            },
-            # リソース不在
-            r"not found|404|missing|does not exist": {
-                "category": ErrorCategory.NOT_FOUND,
-                "severity": ErrorSeverity.MEDIUM,
-                "strategy": "skip",
-                "max_retries": 1
-            },
-            # レート制限
-            r"rate limit|too many requests|429": {
-                "category": ErrorCategory.RATE_LIMIT,
-                "severity": ErrorSeverity.LOW,
-                "strategy": "retry",
-                "max_retries": 5,
-                "retry_delay": 5.0,
-                "exponential_backoff": True
-            },
-            # 構文エラー
-            r"syntax|parse|invalid format|malformed": {
-                "category": ErrorCategory.SYNTAX,
-                "severity": ErrorSeverity.HIGH,
-                "strategy": "abort",
-                "max_retries": 0
-            }
-        }
+    def classify_error(self, error_msg: str) -> str:
+        """
+        エラーメッセージを分類
+        
+        Args:
+            error_msg: エラーメッセージ
+            
+        Returns:
+            エラーの分類 (PARAM_ERROR, TRANSIENT_ERROR, UNKNOWN)
+        """
+        error_lower = error_msg.lower()
+        
+        # パラメータエラー（修正が必要）
+        param_error_indicators = [
+            '404', 'not found', 'invalid parameter', '400', 'bad request',
+            'parameter', 'argument', 'invalid input', 'validation error',
+            'no such column', 'no such table', 'syntax error'
+        ]
+        
+        if any(indicator in error_lower for indicator in param_error_indicators):
+            self.error_stats["param_errors"] += 1
+            return "PARAM_ERROR"
+        
+        # 一時的エラー（リトライで解決可能）
+        transient_error_indicators = [
+            'timeout', 'connection', '503', '500', '502', '504',
+            'network', 'temporary', 'unavailable', 'retry'
+        ]
+        
+        if any(indicator in error_lower for indicator in transient_error_indicators):
+            self.error_stats["transient_errors"] += 1
+            return "TRANSIENT_ERROR"
+        
+        self.error_stats["unknown_errors"] += 1
+        return "UNKNOWN"
     
-    def classify_error(self, error: Exception) -> ErrorCategory:
-        """エラーを分類"""
-        error_str = str(error).lower()
+    async def fix_params_with_llm(
+        self, 
+        tool: str, 
+        params: Dict, 
+        error_msg: str, 
+        tools_info: str
+    ) -> Optional[Dict]:
+        """
+        LLMを使ってパラメータを修正
         
-        # パターンマッチングでカテゴリを判定
-        for pattern, config in self.error_patterns.items():
-            if re.search(pattern, error_str):
-                return config["category"]
-        
-        return ErrorCategory.UNKNOWN
-    
-    def get_severity(self, error: Exception) -> ErrorSeverity:
-        """エラーの重要度を判定"""
-        error_str = str(error).lower()
-        
-        # パターンマッチングで重要度を判定
-        for pattern, config in self.error_patterns.items():
-            if re.search(pattern, error_str):
-                return config["severity"]
-        
-        # デフォルトはMEDIUM
-        return ErrorSeverity.MEDIUM
-    
-    def analyze_error(self, context: ErrorContext) -> ErrorResolution:
-        """エラーを分析して解決策を提案"""
-        error_str = str(context.error).lower()
-        
-        # キャッシュチェック
-        cache_key = f"{type(context.error).__name__}:{error_str[:100]}"
-        if cache_key in self.resolution_cache:
+        Args:
+            tool: ツール名
+            params: 元のパラメータ
+            error_msg: エラーメッセージ
+            tools_info: 利用可能なツール情報
+            
+        Returns:
+            修正されたパラメータ（修正できない場合はNone）
+        """
+        if not self.llm:
             if self.verbose:
-                print(f"[CACHE] 既知のエラーパターンを検出")
-            return self.resolution_cache[cache_key]
-        
-        # パターンマッチングで解決策を決定
-        for pattern, config in self.error_patterns.items():
-            if re.search(pattern, error_str):
-                resolution = ErrorResolution(
-                    strategy=config["strategy"],
-                    description=f"{config['category'].value}エラーを検出",
-                    severity=config["severity"],
-                    category=config["category"],
-                    max_retries=config.get("max_retries", 3),
-                    retry_delay=config.get("retry_delay", 1.0),
-                    exponential_backoff=config.get("exponential_backoff", True),
-                    retry_params={"error_type": config["category"].value}
-                )
-                
-                # キャッシュに保存
-                self.resolution_cache[cache_key] = resolution
-                
-                if self.verbose:
-                    print(f"[分析] {resolution.category.value}エラー (重要度: {resolution.severity.value})")
-                    print(f"  戦略: {resolution.strategy}")
-                
-                return resolution
-        
-        # デフォルトの解決策
-        return ErrorResolution(
-            strategy="retry",
-            description="不明なエラー - デフォルトリトライ",
-            severity=ErrorSeverity.MEDIUM,
-            category=ErrorCategory.UNKNOWN,
-            max_retries=2,
-            retry_delay=1.0
-        )
-    
-    async def handle_error(
-        self,
-        error: Exception,
-        task: str,
-        operation: Optional[str] = None,
-        retry_func: Optional[Callable] = None,
-        fallback_func: Optional[Callable] = None
-    ) -> Dict[str, Any]:
-        """エラーを処理"""
-        self.error_stats["total"] += 1
-        
-        # エラーコンテキストを作成
-        context = ErrorContext(
-            error=error,
-            task=task,
-            operation=operation
-        )
-        self.error_history.append(context)
-        
-        if self.verbose:
-            print(f"\n[エラー処理] {type(error).__name__}: {str(error)[:100]}")
-        
-        # エラーを分析
-        resolution = self.analyze_error(context)
-        
-        # 戦略に応じた処理
-        result = {
-            "success": False,
-            "strategy": resolution.strategy,
-            "error": str(error),
-            "category": resolution.category.value,
-            "severity": resolution.severity.value
-        }
-        
-        if resolution.strategy == "retry" and retry_func:
-            result = await self._handle_retry(
-                retry_func, resolution, context
-            )
-            
-        elif resolution.strategy == "fallback" and fallback_func:
-            result = await self._handle_fallback(
-                fallback_func, resolution, context
-            )
-            
-        elif resolution.strategy == "skip":
-            self.error_stats["skipped"] += 1
-            if self.verbose:
-                print(f"[スキップ] このエラーをスキップします")
-            result["success"] = False
-            result["action"] = "skipped"
-            
-        elif resolution.strategy == "abort":
-            self.error_stats["aborted"] += 1
-            if self.verbose:
-                print(f"[中断] 致命的エラーのため処理を中断")
-            result["success"] = False
-            result["action"] = "aborted"
-        
-        return result
-    
-    async def _handle_retry(
-        self,
-        retry_func: Callable,
-        resolution: ErrorResolution,
-        context: ErrorContext
-    ) -> Dict[str, Any]:
-        """リトライ処理"""
-        self.error_stats["retried"] += 1
-        
-        for attempt in range(1, resolution.max_retries + 1):
-            if self.verbose:
-                print(f"[リトライ] 試行 {attempt}/{resolution.max_retries}")
-            
-            # バックオフ待機
-            if attempt > 1:
-                delay = resolution.retry_delay
-                if resolution.exponential_backoff:
-                    delay = resolution.retry_delay * (2 ** (attempt - 1))
-                
-                if self.verbose:
-                    print(f"  待機中... ({delay:.1f}秒)")
-                await asyncio.sleep(delay)
-            
-            try:
-                # リトライ実行
-                result = await retry_func()
-                
-                self.error_stats["resolved"] += 1
-                if self.verbose:
-                    print(f"[成功] リトライ {attempt}回目で成功")
-                
-                return {
-                    "success": True,
-                    "strategy": "retry",
-                    "attempts": attempt,
-                    "result": result
-                }
-                
-            except Exception as e:
-                if self.verbose:
-                    print(f"  失敗: {str(e)[:100]}")
-                
-                if attempt == resolution.max_retries:
-                    if self.verbose:
-                        print(f"[失敗] 最大リトライ回数に到達")
-                    return {
-                        "success": False,
-                        "strategy": "retry",
-                        "attempts": attempt,
-                        "error": str(e)
-                    }
-    
-    async def _handle_fallback(
-        self,
-        fallback_func: Callable,
-        resolution: ErrorResolution,
-        context: ErrorContext
-    ) -> Dict[str, Any]:
-        """フォールバック処理"""
-        if self.verbose:
-            print(f"[フォールバック] 代替処理を実行")
+                print("[修正] LLMが利用できないため自動修正をスキップ")
+            return None
         
         try:
-            result = await fallback_func()
-            self.error_stats["resolved"] += 1
+            prompt = f"""ツール実行時にエラーが発生しました。パラメータを修正してください。
+
+## エラー情報
+ツール: {tool}
+エラーメッセージ: {error_msg}
+現在のパラメータ: {json.dumps(params, ensure_ascii=False)}
+
+## 利用可能なツール定義
+{tools_info}
+
+## 修正指針
+1. エラーメッセージを分析してパラメータの問題を特定
+2. ツール定義を確認して正しいパラメータ形式を理解
+3. 一般的な修正パターン：
+   - 日本語パラメータ → 英語に変換（例：「北京」→「Beijing」）
+   - テーブル・カラム名の修正
+   - 型変換（文字列 ↔ 数値）
+   - 必須パラメータの追加
+
+## 出力形式
+修正可能な場合：
+```json
+{{"修正成功": true, "params": {{修正されたパラメータ}}}}
+```
+
+修正不可能な場合：
+```json
+{{"修正成功": false, "理由": "修正できない理由"}}
+```"""
+
+            response = await self.llm.chat.completions.create(
+                model=self.config["llm"]["model"],
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1  # 低温度で安定した修正
+            )
             
-            return {
-                "success": True,
-                "strategy": "fallback",
-                "result": result
-            }
+            response_text = response.choices[0].message.content
+            
+            # JSONブロックを抽出
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+                if result.get("修正成功"):
+                    self.error_stats["auto_fixed"] += 1
+                    if self.verbose:
+                        print(f"[修正成功] パラメータを自動修正: {result.get('params')}")
+                    return result.get("params")
+            
+            if self.verbose:
+                print(f"[修正失敗] LLM応答の解析に失敗: {response_text[:100]}...")
+            
+            return None
             
         except Exception as e:
             if self.verbose:
-                print(f"[失敗] フォールバックも失敗: {e}")
+                print(f"[修正エラー] パラメータ修正に失敗: {e}")
+            return None
+    
+    async def execute_with_retry(
+        self, 
+        tool: str, 
+        params: Dict, 
+        execute_func: Callable,
+        tools_info_func: Optional[Callable] = None
+    ) -> Any:
+        """
+        リトライ機能付きでツール実行
+        
+        Args:
+            tool: ツール名
+            params: パラメータ
+            execute_func: 実行関数
+            tools_info_func: ツール情報取得関数（パラメータ修正用）
             
-            return {
-                "success": False,
-                "strategy": "fallback",
-                "error": str(e)
-            }
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """エラー統計を取得"""
-        stats = self.error_stats.copy()
-        
-        # エラーカテゴリ別の集計
-        category_counts = {}
-        severity_counts = {}
-        
-        for context in self.error_history:
-            category = self.classify_error(context.error)
-            severity = self.get_severity(context.error)
+        Returns:
+            実行結果
             
-            category_counts[category.value] = category_counts.get(category.value, 0) + 1
-            severity_counts[severity.value] = severity_counts.get(severity.value, 0) + 1
+        Raises:
+            Exception: 全てのリトライに失敗した場合
+        """
+        max_retries = self.config.get("execution", {}).get("max_retries", 3)
+        original_params = params.copy()  # 元のパラメータを保持
         
-        stats["by_category"] = category_counts
-        stats["by_severity"] = severity_counts
-        stats["resolution_rate"] = (
-            (stats["resolved"] / stats["total"] * 100) if stats["total"] > 0 else 0
-        )
+        for attempt in range(max_retries + 1):
+            try:
+                result = await execute_func(tool, params)
+                
+                # デバッグ：error_handlerでの結果チェック
+                if isinstance(result, str):
+                    surrogate_count = sum(1 for char in result if 0xD800 <= ord(char) <= 0xDFFF)
+                    if surrogate_count > 0:
+                        print(f"[error_handler] Found {surrogate_count} surrogate characters in result")
+                        for i, char in enumerate(result):
+                            if 0xD800 <= ord(char) <= 0xDFFF:
+                                print(f"[error_handler] First surrogate at position {i}: {repr(char)} (U+{ord(char):04X})")
+                                break
+                
+                # 成功時のログ
+                if attempt > 0:
+                    self.error_stats["retry_success"] += 1
+                    if self.verbose:
+                        print(f"  [成功] {attempt}回目のリトライで成功しました")
+                
+                return result
+                
+            except Exception as e:
+                self.error_stats["total_errors"] += 1
+                # エラーメッセージからサロゲート文字を除去
+                error_msg = safe_str(str(e))
+                error_type = self.classify_error(error_msg)
+                
+                if self.verbose:
+                    print(f"  [エラー分類] {error_type}: {error_msg}")
+                
+                # 最後の試行の場合は例外を投げる
+                if attempt >= max_retries:
+                    if self.verbose:
+                        print(f"  [失敗] 最大リトライ回数({max_retries})に到達")
+                    raise e
+                
+                # エラータイプに応じた処理
+                if error_type == "PARAM_ERROR":
+                    # パラメータエラーの場合、LLMで修正を試みる
+                    if self.config.get("error_handling", {}).get("auto_correct_params", True):
+                        if self.verbose:
+                            print(f"  [分析] パラメータエラーを検出 - LLMで修正を試みます")
+                        
+                        if tools_info_func:
+                            tools_info = tools_info_func()
+                            corrected_params = await self.fix_params_with_llm(
+                                tool, params, error_msg, tools_info
+                            )
+                            
+                            if corrected_params and corrected_params != params:
+                                params = corrected_params
+                                if self.verbose:
+                                    safe_params = safe_str(str(params))
+                                    print(f"  [修正] パラメータを修正しました: {safe_params}")
+                                # パラメータ修正後は残り試行回数を制限（無限ループ防止）
+                                max_retries = min(max_retries, attempt + 2)
+                            else:
+                                if self.verbose:
+                                    print(f"  [修正失敗] パラメータの自動修正に失敗")
+                                # 修正できない場合は即座に失敗
+                                raise e
+                        else:
+                            # ツール情報が取得できない場合は即座に失敗
+                            if self.verbose:
+                                print(f"  [修正失敗] ツール情報が取得できないため修正不可")
+                            raise e
+                    else:
+                        # 自動修正が無効の場合は即座に失敗
+                        raise e
+                
+                elif error_type == "TRANSIENT_ERROR":
+                    # 一時的エラーの場合は通常のリトライ
+                    if self.verbose:
+                        print(f"  [リトライ] 一時的エラー - {attempt + 1}/{max_retries}")
+                    retry_interval = self.config.get("error_handling", {}).get("retry_interval", 1.0)
+                    await asyncio.sleep(retry_interval)
+                
+                else:
+                    # 不明なエラーの場合は短時間リトライ
+                    if self.verbose:
+                        print(f"  [リトライ] 不明なエラー - {attempt + 1}/{max_retries}")
+                    await asyncio.sleep(0.5)
+    
+    def log_error(self, context: str, error: Exception, level: str = "ERROR"):
+        """
+        エラーログを統一形式で出力
         
-        return stats
+        Args:
+            context: エラー発生コンテキスト
+            error: 例外オブジェクト
+            level: ログレベル
+        """
+        if self.verbose:
+            print(f"[{level}] {context}: {str(error)}")
     
-    def get_report(self) -> str:
-        """エラーレポートを生成"""
-        stats = self.get_statistics()
+    def get_error_statistics(self) -> Dict[str, Any]:
+        """エラー統計情報を取得"""
+        total = self.error_stats["total_errors"]
+        if total == 0:
+            success_rate = 100.0
+        else:
+            success_rate = (self.error_stats["retry_success"] + self.error_stats["auto_fixed"]) / total * 100
         
-        report_lines = ["エラー処理レポート", "=" * 50]
-        
-        # 基本統計
-        report_lines.append("\n[基本統計]")
-        report_lines.append(f"  総エラー数: {stats['total']}")
-        report_lines.append(f"  解決済み: {stats['resolved']}")
-        report_lines.append(f"  リトライ: {stats['retried']}")
-        report_lines.append(f"  スキップ: {stats['skipped']}")
-        report_lines.append(f"  中断: {stats['aborted']}")
-        report_lines.append(f"  解決率: {stats['resolution_rate']:.1f}%")
-        
-        # カテゴリ別
-        if stats["by_category"]:
-            report_lines.append("\n[カテゴリ別]")
-            for category, count in stats["by_category"].items():
-                report_lines.append(f"  {category}: {count}")
-        
-        # 重要度別
-        if stats["by_severity"]:
-            report_lines.append("\n[重要度別]")
-            for severity, count in stats["by_severity"].items():
-                report_lines.append(f"  {severity}: {count}")
-        
-        # 最近のエラー
-        if self.error_history:
-            report_lines.append("\n[最近のエラー]")
-            for context in self.error_history[-5:]:
-                report_lines.append(f"  - {context.task}: {str(context.error)[:50]}")
-        
-        return "\n".join(report_lines)
-
-
-# テスト用の関数
-async def test_error_handler():
-    """エラーハンドラーのテスト"""
-    print("エラーハンドラーのテスト開始\n")
+        return {
+            **self.error_stats,
+            "success_rate": round(success_rate, 1)
+        }
     
-    handler = BasicErrorHandler(verbose=True)
-    
-    # テスト1: 接続エラー
-    print("=" * 50)
-    print("テスト1: 接続エラー")
-    
-    async def connection_task():
-        raise ConnectionError("Server connection refused")
-    
-    retry_count = 0
-    async def retry_connection():
-        nonlocal retry_count
-        retry_count += 1
-        if retry_count < 3:
-            raise ConnectionError("Still refusing connection")
-        return "Connection successful!"
-    
-    result = await handler.handle_error(
-        ConnectionError("Server connection refused"),
-        task="データベース接続",
-        operation="connect",
-        retry_func=retry_connection
-    )
-    print(f"結果: {result}\n")
-    
-    # テスト2: タイムアウトエラー
-    print("=" * 50)
-    print("テスト2: タイムアウトエラー")
-    
-    result = await handler.handle_error(
-        TimeoutError("Request timed out after 30s"),
-        task="API呼び出し",
-        operation="fetch_data"
-    )
-    print(f"結果: {result}\n")
-    
-    # テスト3: 権限エラー
-    print("=" * 50)
-    print("テスト3: 権限エラー")
-    
-    result = await handler.handle_error(
-        PermissionError("Access denied to resource"),
-        task="ファイル読み込み",
-        operation="read_file"
-    )
-    print(f"結果: {result}\n")
-    
-    # テスト4: レート制限エラー
-    print("=" * 50)
-    print("テスト4: レート制限エラー")
-    
-    async def rate_limited_task():
-        await asyncio.sleep(0.1)
-        return "API call successful"
-    
-    result = await handler.handle_error(
-        Exception("429 Too many requests"),
-        task="API大量呼び出し",
-        retry_func=rate_limited_task
-    )
-    print(f"結果: {result}\n")
-    
-    # レポート表示
-    print("=" * 50)
-    print(handler.get_report())
-    
-    return handler.get_statistics()
-
-
-if __name__ == "__main__":
-    asyncio.run(test_error_handler())
+    def reset_statistics(self):
+        """エラー統計をリセット"""
+        for key in self.error_stats:
+            self.error_stats[key] = 0
