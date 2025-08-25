@@ -23,7 +23,7 @@ from connection_manager import ConnectionManager
 from display_manager import DisplayManager
 from error_handler import ErrorHandler
 from prompts import PromptTemplates
-from utils import Logger
+from utils import Logger, safe_str
 
 # Rich UI support
 try:
@@ -33,25 +33,6 @@ except ImportError:
     RICH_AVAILABLE = False
 
 
-def safe_str(obj: Any, use_repr: bool = False) -> str:
-    """
-    オブジェクトをサロゲート文字を除去して文字列化
-    
-    Args:
-        obj: 文字列に変換するオブジェクト
-        use_repr: Trueならrepr()、Falseならstr()を使用
-        
-    Returns:
-        サロゲート文字が除去された文字列
-    """
-    text = repr(obj) if use_repr else str(obj)
-    if not isinstance(text, str):
-        return text
-    
-    return ''.join(
-        char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-        for char in text
-    )
 
 
 class MCPAgentV4:
