@@ -49,7 +49,7 @@ execution:
   step_delay: 0.1
   
   # フォールバック機能の有効/無効（段階的移行用）
-  fallback_enabled: true
+  fallback_enabled: false
   
   # タスクリスト最大数（暴走防止）
   max_tasks: 10

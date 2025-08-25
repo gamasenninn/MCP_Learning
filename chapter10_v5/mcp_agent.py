@@ -264,19 +264,10 @@ class MCPAgentV4:
         task_list = await self._generate_task_list_with_retry(user_query, task_type)
         
         if not task_list:
-            # フォールバック設定を確認
-            fallback_enabled = self.config.get("execution", {}).get("fallback_enabled", True)
-            
-            if fallback_enabled and task_type == "SIMPLE":
-                # フォールバック使用
-                self.execution_metrics["fallback_usage"] += 1
-                self.logger.info("[フォールバック] 従来方式で実行します")
-                return await self._execute_fallback_dialogue(user_query)
-            else:
-                # エラーメッセージを返す
-                error_msg = (f"申し訳ありません。{user_query}の処理方法を決定できませんでした。\n"
-                           f"別の表現で再度お試しください。")
-                return error_msg
+            # タスクリスト生成に失敗した場合のエラーメッセージ
+            error_msg = (f"申し訳ありません。{user_query}の処理方法を決定できませんでした。\n"
+                       f"別の表現で再度お試しください。")
+            return error_msg
         
         # メトリクス更新
         self.execution_metrics["total_task_lists"] += 1
@@ -507,137 +498,6 @@ class MCPAgentV4:
             print(f"[エラー] シンプルタスクリスト生成失敗: {e}")
             return []
     
-    async def _execute_fallback_dialogue(self, user_query: str) -> str:
-        """フォールバック用の従来型対話実行"""
-        execution_context = []
-        step_count = 0
-        max_steps = 5
-        
-        while step_count < max_steps:
-            step_count += 1
-            
-            if self._detect_loop(execution_context):
-                return "同じ処理が繰り返されています。処理を中断します。"
-            
-            action = await self._get_next_action(user_query, execution_context, step_count)
-            
-            if action.get("type") == "COMPLETE":
-                return action.get("response", "処理を完了しました。")
-            elif action.get("type") == "EXECUTE":
-                step_result = await self._execute_step(action, step_count)
-                execution_context.append(step_result)
-            else:
-                return "処理中にエラーが発生しました。"
-        
-        return "最大ステップ数に到達しました。処理を完了します。"
-    
-    
-    
-    def _detect_loop(self, context: List[Dict], threshold: int = 3) -> bool:
-        """無限ループ検出"""
-        if len(context) < threshold:
-            return False
-        
-        # 最後のN個が同じツールか確認
-        last_tools = [c.get('tool', '') for c in context[-threshold:]]
-        return len(set(last_tools)) == 1 and last_tools[0] != ''
-    
-    async def _get_next_action(self, user_query: str, context: List[Dict], 
-                              step: int) -> Dict:
-        """
-        次のアクションを決定（LLMと対話）
-        
-        V3のタスク分解を段階的に実行する版
-        """
-        # 会話履歴を取得（V3から継承）
-        recent_context = self._get_recent_context()
-        
-        # 利用可能なツール情報
-        tools_info = self.connection_manager.format_tools_for_llm()
-        
-        # 実行コンテキストを整理
-        context_summary = self._format_execution_context(context)
-        
-        # プロンプトテンプレートから取得
-        prompt = PromptTemplates.get_next_action_prompt(
-            recent_context=recent_context,
-            user_query=user_query,
-            context_summary=context_summary,
-            tools_info=tools_info,
-            custom_instructions=self.custom_instructions,
-            step=step
-        )
-        
-        try:
-            self.session_stats["total_api_calls"] += 1
-            
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=self.config["llm"]["temperature"]
-            )
-            
-            content = safe_str(response.choices[0].message.content)
-            result = json.loads(content)
-            return result
-            
-        except Exception as e:
-            print(f"[エラー] アクション決定失敗: {e}")
-            return {"type": "COMPLETE", "response": f"処理エラー: {str(e)}"}
-    
-    async def _execute_step(self, action: Dict, step_num: int) -> Dict:
-        """
-        1つのステップを実行
-        """
-        tool = action.get("tool", "")
-        params = action.get("params", {})
-        self.logger.info(f"[DEBUG] _execute_step が呼び出されました: tool={tool}")
-        description = action.get("description", f"{tool}を実行")
-        
-        # ステップ開始の表示
-        self.display.show_step_start(step_num, "?", description)
-        self.display.show_tool_call(tool, params)
-        
-        start_time = time.time()
-        
-        try:
-            # ツール実行（リトライ付き）
-            result = await self._execute_tool_with_retry(tool, params, description)
-            
-            duration = time.time() - start_time
-            
-            self.display.show_step_complete(description, duration, success=True)
-            self.session_stats["successful_tasks"] += 1
-            
-            return {
-                "step": step_num,
-                "tool": tool,
-                "params": params,
-                "result": result,
-                "success": True,
-                "duration": duration,
-                "description": description
-            }
-            
-        except Exception as e:
-            duration = time.time() - start_time
-            error_msg = str(e)
-            
-            self.display.show_step_complete(f"{description} - {error_msg}", 
-                                          duration, success=False)
-            self.session_stats["failed_tasks"] += 1
-            
-            return {
-                "step": step_num,
-                "tool": tool,
-                "params": params,
-                "error": error_msg,
-                "success": False,
-                "duration": duration,
-                "description": description
-            }
-    
     async def _execute_tool_with_retry(self, tool: str, params: Dict, description: str = "") -> Any:
         """
         LLMベースの賢いツール実行・判断システム
@@ -810,30 +670,6 @@ class MCPAgentV4:
                 "processed_result": result_str,
                 "summary": "LLM判断に失敗しました。結果をそのまま表示します。"
             }
-    
-    
-    
-    
-    def _format_execution_context(self, context: List[Dict]) -> str:
-        """実行コンテキストを文字列にフォーマット"""
-        if not context:
-            return ""
-        
-        lines = []
-        for i, ctx in enumerate(context, 1):
-            status = "成功" if ctx["success"] else "失敗"
-            lines.append(f"ステップ{i}: {ctx['description']} ({status})")
-            
-            if ctx["success"]:
-                # 結果を簡潔に表示
-                result_str = str(ctx["result"])[:100]
-                if len(result_str) == 100:
-                    result_str += "..."
-                lines.append(f"  結果: {result_str}")
-            else:
-                lines.append(f"  エラー: {ctx['error']}")
-        
-        return "\n".join(lines)
     
     async def _generate_task_list(self, user_query: str) -> List[Dict]:
         """タスクリストを事前生成（プロンプト外部化版）"""
