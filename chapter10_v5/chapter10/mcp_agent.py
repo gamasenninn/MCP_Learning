@@ -24,8 +24,6 @@ from display_manager import DisplayManager
 from error_handler import ErrorHandler
 from prompts import PromptTemplates
 from utils import Logger, safe_str
-from state_manager import StateManager, TaskState
-from task_manager import TaskManager
 
 # Rich UI support
 try:
@@ -86,10 +84,6 @@ class MCPAgent:
             llm=self.llm,
             verbose=self.config.get("development", {}).get("verbose", True)
         )
-        
-        # 状態管理システム（V6新機能）
-        self.state_manager = StateManager()
-        self.task_manager = TaskManager(self.state_manager, self.llm)
         
         # 会話履歴（V3から継承）
         self.conversation_history: List[Dict] = []
@@ -162,7 +156,7 @@ class MCPAgent:
                 print("[情報] AGENT.mdが見つかりません（基本能力のみで動作）")
             return ""
     
-    async def initialize(self, session_id: Optional[str] = None):
+    async def initialize(self):
         """エージェントの初期化"""
         if self.verbose:
             print(f"\n[指示書] {'カスタム指示あり' if self.custom_instructions else '基本能力のみ'}")
@@ -170,19 +164,6 @@ class MCPAgent:
         
         # MCP接続管理を初期化（V3から継承）
         await self.connection_manager.initialize()
-        
-        # セッション状態を初期化（V6新機能）
-        actual_session_id = await self.state_manager.initialize_session(session_id)
-        
-        if self.verbose:
-            print(f"[セッション] {actual_session_id}")
-            
-            # 復元されたタスクがある場合は通知
-            if self.state_manager.has_pending_tasks():
-                pending_count = len(self.state_manager.get_pending_tasks())
-                print(f"[復元] 未完了タスクが{pending_count}個あります")
-        
-        return actual_session_id
     
     async def process_request(self, user_query: str) -> str:
         """
@@ -223,53 +204,35 @@ class MCPAgent:
     
     async def _execute_interactive_dialogue(self, user_query: str) -> str:
         """
-        V6統合実行エンジン - 状態管理とCLARIFICATION対応
+        最終版実行エンジン
         
-        新機能:
-        - 状態の永続化
-        - CLARIFICATIONタスクによるユーザー確認
-        - タスクの中断・再開機能
+        複雑なタスクはタスクリスト方式、シンプルなタスクは従来方式
         """
         # 現在のクエリを保存（LLM判断で使用）
         self.current_user_query = user_query
-        
-        # 状態に会話を記録
-        await self.state_manager.add_conversation_entry("user", user_query)
-        
-        # 未完了のタスクがある場合の処理
-        if self.state_manager.has_pending_tasks():
-            return await self._handle_pending_tasks(user_query)
-        
         self.display.show_analysis("リクエストを分析中...")
         
-        # まず処理方式を判定（CLARIFICATION対応版）
-        execution_result = await self._determine_execution_type_v6(user_query)
+        # まず処理方式を判定
+        execution_result = await self._determine_execution_type(user_query)
         execution_type = execution_result.get("type", "SIMPLE")
-        
-        # 状態に実行タイプを記録
-        await self.state_manager.set_user_query(user_query, execution_type)
         
         if execution_type == "NO_TOOL":
             response = execution_result.get("response", "了解しました。")
-            await self.state_manager.add_conversation_entry("assistant", response)
             self._add_to_history("assistant", response)
             return response
-        elif execution_type == "CLARIFICATION":
-            # ユーザーへの確認が必要
-            return await self._handle_clarification_needed(user_query, execution_result)
         else:
             # SIMPLE/COMPLEX統合：全てのツール実行要求を統一メソッドで処理
             return await self._execute_with_tasklist(user_query)
     
-    async def _determine_execution_type_v6(self, user_query: str) -> Dict:
-        """V6版: CLARIFICATION対応の実行方式判定"""
+    async def _determine_execution_type(self, user_query: str) -> Dict:
+        """ユーザーの要求がNO_TOOLかツール実行かを判定。シンプル・複雑タスクを統合。"""
         recent_context = self._get_recent_context()
         
         # 利用可能なツール情報を取得
         tools_info = self.connection_manager.format_tools_for_llm()
         
-        # プロンプトテンプレートから取得（V6対応版）
-        prompt = PromptTemplates.get_execution_type_determination_prompt_v6(
+        # プロンプトテンプレートから取得
+        prompt = PromptTemplates.get_execution_type_determination_prompt(
             recent_context=recent_context,
             user_query=user_query,
             tools_info=tools_info
@@ -286,11 +249,9 @@ class MCPAgent:
             content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
             
-            # V6版では CLARIFICATION も含む
-            # SIMPLE/COMPLEX統合のため、NO_TOOL, CLARIFICATION以外は全てTOOLに統一
+            # SIMPLE/COMPLEX統合のため、NO_TOOL以外は全てTOOLに統一
             if result.get('type') in ['SIMPLE', 'COMPLEX']:
                 result['type'] = 'TOOL'
-            
             
             self.logger.info(f"判定: {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}")
             
@@ -300,141 +261,27 @@ class MCPAgent:
             print(f"[エラー] 実行方式判定失敗: {e}")
             return {"type": "TOOL", "reason": "判定エラーによりデフォルト選択"}
     
-    async def _handle_pending_tasks(self, user_query: str) -> str:
-        """未完了タスクがある場合の処理"""
-        pending_tasks = self.state_manager.get_pending_tasks()
-        
-        # CLARIFICATIONタスクがある場合
-        if self.task_manager.has_clarification_tasks():
-            for task in pending_tasks:
-                if task.tool == "CLARIFICATION" and task.status == "pending":
-                    # CLARIFICATIONタスクを完了としてマーク
-                    await self.state_manager.move_task_to_completed(task.task_id, {"user_response": user_query})
-                    
-                    # 元のクエリとユーザー応答を組み合わせて新しいクエリを作成
-                    original_query = task.params.get("user_query", "")
-                    question = task.params.get("question", "")
-                    
-                    # より明確な形式でLLMが理解しやすく構成
-                    combined_query = f"{original_query}。{user_query}。"
-                    
-                    # 状態をリセットして新しいクエリとして処理
-                    await self.state_manager.set_user_query(combined_query, "TOOL")
-                    
-                    # LLMに新しいタスクリストを生成させる
-                    return await self._execute_with_tasklist(combined_query)
-        
-        # 通常のタスクを継続実行
-        return await self._continue_pending_tasks(user_query)
-    
-    async def _handle_clarification_needed(self, user_query: str, execution_result: Dict) -> str:
-        """CLARIFICATION必要時の処理"""
-        clarification_info = execution_result.get('clarification', {})
-        
-        # CLARIFICATIONタスクを生成
-        clarification_task = TaskState(
-            task_id=f"clarification_{int(time.time())}",
-            tool="CLARIFICATION",
-            params={
-                "question": clarification_info.get('question', '詳細情報をお教えください'),
-                "context": f"要求: {user_query}",
-                "user_query": user_query
-            },
-            description="ユーザーに確認",
-            status="pending"
-        )
-        
-        await self.state_manager.add_pending_task(clarification_task)
-        
-        # CLARIFICATIONタスクを実行
-        return await self.task_manager.execute_clarification_task(clarification_task)
-    
-    async def _handle_clarification_task(self, task: TaskState) -> str:
-        """CLARIFICATIONタスクの処理"""
-        return await self.task_manager.execute_clarification_task(task)
-    
-    async def _continue_pending_tasks(self, user_query: str) -> str:
-        """保留中タスクの継続実行"""
-        next_task = self.task_manager.get_next_executable_task()
-        
-        if not next_task:
-            return "実行可能なタスクがありません。"
-        
-        # タスクを実行
-        return await self._execute_single_task_v6(next_task)
-    
-    async def _execute_single_task_v6(self, task: TaskState) -> str:
-        """単一タスクのV6実行"""
-        try:
-            # 依存関係を解決
-            completed_tasks = self.state_manager.get_completed_tasks()
-            resolved_task = await self.task_manager.resolve_task_dependencies(task, completed_tasks)
-            
-            # タスクを実行
-            result = await self.connection_manager.call_tool(resolved_task.tool, resolved_task.params)
-            
-            # 結果を安全な形式に変換
-            safe_result = safe_str(result)
-            
-            # 結果を状態に保存
-            await self.state_manager.move_task_to_completed(task.task_id, safe_result)
-            
-            return f"タスクが完了しました: {task.description}\n結果: {safe_result}"
-            
-        except Exception as e:
-            await self.state_manager.move_task_to_completed(task.task_id, error=str(e))
-            return f"タスク実行エラー: {task.description}\nエラー: {str(e)}"
-    
     async def _execute_with_tasklist(self, user_query: str) -> str:
-        """V6版タスクリスト実行メソッド - 状態管理対応"""
+        """統一されたタスクリスト実行メソッド。シンプル・複雑タスクを統合処理。"""
         
-        # V6用のシンプルなタスク生成
-        task_list_spec = await self._generate_simple_task_list_v6(user_query)
+        # リトライ機能付きタスクリスト生成（統一メソッド使用）
+        task_list = await self._generate_task_list_with_retry(user_query)
         
-        if not task_list_spec:
+        if not task_list:
+            # タスクリスト生成に失敗した場合のエラーメッセージ
             error_msg = (f"申し訳ありません。{user_query}の処理方法を決定できませんでした。\n"
                        f"別の表現で再度お試しください。")
             return error_msg
         
-        # TaskStateオブジェクトを生成（CLARIFICATION処理を含む）
-        tasks = await self.task_manager.create_tasks_from_list(task_list_spec, user_query)
+        # メトリクス更新
+        self.execution_metrics["total_task_lists"] += 1
+        self.execution_metrics["average_task_count"] += len(task_list)
         
-        # タスクを状態管理に追加
-        for task in tasks:
-            await self.state_manager.add_pending_task(task)
-        
-        # CLARIFICATIONタスクが生成された場合は優先処理
-        if self.task_manager.has_clarification_tasks():
-            clarification_task = None
-            for task in tasks:
-                if task.tool == "CLARIFICATION":
-                    clarification_task = task
-                    break
-            
-            if clarification_task:
-                return await self._handle_clarification_task(clarification_task)
-        
-        # 通常のタスクリスト実行
-        return await self._execute_task_sequence(tasks, user_query)
-    
-    async def _execute_task_sequence(self, tasks: List[TaskState], user_query: str) -> str:
-        """タスク順次実行"""
-        
-        # チェックリストを表示（既存の表示ロジックを使用）
-        task_list_for_display = [
-            {
-                "tool": task.tool,
-                "description": task.description,
-                "params": task.params
-            }
-            for task in tasks if task.tool != "CLARIFICATION"
-        ]
-        
-        if task_list_for_display:
-            # V6用のシンプル表示
-            print("\n[タスク一覧]")
-            for i, task in enumerate(task_list_for_display):
-                print(f"  [ ] {task['description']}")
+        # チェックリストを表示
+        if self.ui_mode == "rich" and self.config.get("display", {}).get("rich_options", {}).get("enable_live_updates", True):
+            self.display.show_checklist(task_list)
+        else:
+            self.display.show_checklist(task_list)
         
         # 実行結果を追跡
         completed = []
@@ -442,47 +289,86 @@ class MCPAgent:
         execution_context = []
         
         # タスクを順次実行
-        executable_tasks = [t for t in tasks if t.tool != "CLARIFICATION"]
+        for i, task in enumerate(task_list):
+            # 進行状況更新（Rich UIの場合はライブ更新）
+            if self.ui_mode == "rich" and hasattr(self.display, 'update_checklist_live'):
+                self.display.update_checklist_live(task_list, current=i, completed=completed, failed=failed)
+            else:
+                self.display.update_checklist(task_list, current=i, completed=completed, failed=failed)
+            
+            try:
+                # タスク実行（これまでの実行コンテキストを渡す）
+                result = await self._execute_planned_task(task, i+1, len(task_list), execution_context.copy())
+                
+                if result["success"]:
+                    completed.append(i)
+                    task["duration"] = result["duration"]
+                else:
+                    failed.append(i)
+                
+                execution_context.append(result)
+                
+            except Exception as e:
+                failed.append(i)
+                print(f"[エラー] タスク{i+1}実行失敗: {e}")
         
-        for i, task in enumerate(executable_tasks):
-            # V6用のシンプル進行状況表示
-            print(f"\n[実行中] {task.description}...")
-            
-            # LLMベースでパラメータを解決
-            resolved_params = await self._generate_params_with_llm(task, execution_context)
-            
-            # タスク実行（リトライ機能付き）
-            start_time = time.time()
-            result = await self._execute_tool_with_retry(
-                tool=task.tool,
-                params=resolved_params,
-                description=task.description
-            )
-            duration = time.time() - start_time
-            
-            # 結果を安全な形式に変換
-            safe_result = safe_str(result)
-            
-            # 成功時の処理
-            await self.state_manager.move_task_to_completed(task.task_id, safe_result)
-            completed.append(i)
-            print(f"[完了] {task.description}")
-            
-            execution_context.append({
-                "success": True,
-                "result": safe_result,
-                "duration": duration,
-                "task_description": task.description
-            })
-        
-        # V6用の最終状況表示
-        if completed:
-            print(f"\n[完了] {len(completed)}個のタスクが正常完了")
-        if failed:
-            print(f"[失敗] {len(failed)}個のタスクでエラーが発生")
+        # 最終状況表示
+        if self.ui_mode == "rich" and hasattr(self.display, 'update_checklist_live'):
+            self.display.update_checklist_live(task_list, current=-1, completed=completed, failed=failed)
+        else:
+            self.display.update_checklist(task_list, current=-1, completed=completed, failed=failed)
         
         # 結果をLLMで解釈
         return await self._interpret_planned_results(user_query, execution_context)
+    
+    def _resolve_placeholders(self, params: Dict, execution_context: List[Dict]) -> Dict:
+        """
+        パラメータ内のプレースホルダーを実際の値に置換
+        
+        サポートされるプレースホルダー:
+        - {{previous_result}} - 直前のタスク結果
+        - {{task_N.field}} - N番目のタスクの特定フィールド
+        - 文字列パターンマッチング（例：「取得した都市名」→ 実際の都市名）
+        """
+        if not execution_context:
+            return params
+        
+        import re
+        import json
+        
+        def replace_value(value):
+            if not isinstance(value, str):
+                return value
+                
+            # {{previous_result}} パターン
+            if value == "{{previous_result}}" and execution_context:
+                last_result = execution_context[-1].get("result", "")
+                return str(last_result)
+            
+            # {{task_N.field}} パターン
+            task_pattern = r'\{\{task_(\d+)\.(\w+)\}\}'
+            matches = re.findall(task_pattern, value)
+            for task_num, field in matches:
+                task_index = int(task_num) - 1
+                if 0 <= task_index < len(execution_context):
+                    task_result = execution_context[task_index].get("result", {})
+                    if isinstance(task_result, dict) and field in task_result:
+                        placeholder = f"{{{{task_{task_num}.{field}}}}}"
+                        value = value.replace(placeholder, str(task_result[field]))
+            
+            
+            return value
+        
+        # パラメータの各値を再帰的に処理
+        def process_params(obj):
+            if isinstance(obj, dict):
+                return {k: process_params(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [process_params(item) for item in obj]
+            else:
+                return replace_value(obj)
+        
+        return process_params(params)
     
     def _format_context_for_llm(self, execution_context: List[Dict]) -> str:
         """実行コンテキストをLLM用に整形"""
@@ -503,36 +389,38 @@ class MCPAgent:
         
         return "\n".join(formatted_context)
     
-    async def _generate_params_with_llm(self, task: TaskState, execution_context: List[Dict]) -> Dict:
-        """LLMが実行文脈を理解して直接パラメータを生成"""
-        tool = task.tool
-        params = task.params
-        description = task.description
+    async def _resolve_params_with_llm(self, task: Dict, execution_context: List[Dict]) -> Dict:
+        """LLMが文脈を理解してパラメータを適切に解決"""
+        tool = task.get("tool", "")
+        params = task.get("params", {})
+        description = task.get("description", "")
         
-        # 実行文脈から結果情報を抽出
-        context_info = []
-        if execution_context:
-            for i, ctx in enumerate(execution_context):
-                if ctx.get("success"):
-                    result_str = str(ctx.get("result", ""))
-                    task_desc = ctx.get("task_description", "不明なタスク")
-                    context_info.append(f"タスク{i+1}: {task_desc} → 結果: {result_str}")
+        # LLMが理解すべき複雑なパラメータが含まれているかチェック
+        params_str = str(params)
+        if not any(indicator in params_str for indicator in ["[前の", "取得した", "{{", "前回の", "結果を"]):
+            # 複雑なパラメータがない場合は従来処理
+            return params
         
-        context_str = "\n".join(context_info) if context_info else "前の実行結果はありません"
+        # LLMにパラメータ解決を依頼
+        context_str = self._format_context_for_llm(execution_context)
         
-        prompt = f"""次のタスクを実行するためのパラメータを、実行履歴から適切に決定してください。
+        prompt = f"""実行予定のタスクのパラメータを、これまでの実行結果から適切に決定してください。
 
-## 実行するタスク
+## 実行予定のタスク
 - ツール: {tool}
 - 説明: {description}
 - 元のパラメータ: {json.dumps(params, ensure_ascii=False)}
 
-## これまでの実行履歴
+## これまでの実行結果
 {context_str}
 
 ## 指示
-前の実行結果を参考にして、このタスクに最適なパラメータを決定してください。
-前のタスクの数値結果を使う場合は、その数値を直接パラメータに設定してください。
+上記の実行結果から、このタスクに最適なパラメータ値を決定してください。
+
+例:
+- "[前のタスクで取得した都市名]" → IPアドレス結果から "Tokyo" を抽出
+- "[前回の結果]" → 前のタスクの具体的な値を使用
+- "{{previous_result}}" → 前のタスクの結果をそのまま使用
 
 ## 出力形式（JSON）
 ```json
@@ -560,18 +448,33 @@ class MCPAgent:
                 reasoning = result.get("reasoning", "")
                 
                 if self.verbose:
-                    print(f"[V6パラメータ解決] {reasoning}")
+                    print(f"[パラメータ解決] {reasoning}")
                 
                 return resolved_params
             
             if self.verbose:
-                print(f"[V6パラメータ解決失敗] JSON解析エラー: {response_text[:100]}...")
+                print(f"[パラメータ解決失敗] JSON解析エラー: {response_text[:100]}...")
             return params
             
         except Exception as e:
             if self.verbose:
-                print(f"[V6パラメータ解決エラー] {e}")
+                print(f"[パラメータ解決エラー] {e}")
             return params
+    
+    async def _resolve_params_hybrid(self, task: Dict, execution_context: List[Dict]) -> Dict:
+        """ハイブリッド型パラメータ解決（簡単なケースは従来、複雑なケースはLLM）"""
+        params = task.get("params", {})
+        
+        # まず従来の方式で簡単なプレースホルダーを処理
+        resolved_params = self._resolve_placeholders(params, execution_context)
+        
+        # 複雑なケース（自然言語的な記述）があるかチェック
+        params_str = str(resolved_params)
+        if any(indicator in params_str for indicator in ["[前の", "取得した", "前回の", "結果を"]):
+            # 複雑なケースはLLMに委ねる
+            return await self._resolve_params_with_llm(task, execution_context)
+        
+        return resolved_params
     
     def _build_judgment_prompt(
         self, 
@@ -616,7 +519,8 @@ class MCPAgent:
 - **現在実行中のタスクの目的を必ず尊重してください**
 - 修正は元のパラメータ（{original_params_str}）を基準に行ってください
 - 他のタスクのパラメータに変更してはいけません
-- 例：都市名に国コードを追加（例："Tokyo" → "Tokyo, JP"）
+- 例：「Beijing」の天気取得なら → 「Beijing, CN」等に修正
+- 例：「Tokyo」の天気取得なら → 「Tokyo, JP」等に修正
 
 ## 出力形式（JSON）
 {{
@@ -630,7 +534,7 @@ class MCPAgent:
 
 ## 修正例
 - 構文エラー → コードを正しい構文に修正
-- 都市名エラー → 国コード付きに修正
+- 都市名エラー → 国コード付きに修正（例：Beijing → Beijing, CN）
 - 日本語パラメータ → 英語に変換
 - セミコロン記法 → 複数行に分解"""
     
@@ -906,19 +810,90 @@ class MCPAgent:
         return judgment
     
     
+    async def _execute_planned_task(self, task: Dict, step_num: int, total: int, execution_context: List[Dict] = None) -> Dict:
+        """計画されたタスクを実行"""
+        tool = task.get("tool", "")
+        params = task.get("params", {})
+        description = task.get("description", f"{tool}を実行")
+        
+        # パラメータ解決処理（設定に応じて方式を選択）
+        if execution_context:
+            resolution_mode = self.config.get("execution", {}).get("parameter_resolution_mode", "placeholder")
+            
+            if resolution_mode == "llm_based":
+                params = await self._resolve_params_with_llm(task, execution_context)
+            elif resolution_mode == "hybrid":
+                params = await self._resolve_params_hybrid(task, execution_context)
+            else:  # placeholder (従来方式)
+                params = self._resolve_placeholders(params, execution_context)
+        
+        # ステップ開始の表示
+        self.display.show_step_start(step_num, "?", description)
+        
+        # デバッグ: ツール実行直前のパラメータを確認
+        if self.verbose and tool == "execute_python":
+            print(f"[DEBUG] About to execute {tool} with full params:")
+            for k, v in params.items():
+                print(f"  {k}: {safe_str(v, use_repr=True)}")
+        
+        self.display.show_tool_call(tool, params)
+        
+        start_time = time.time()
+        
+        try:
+            # ツール実行
+            result = await self._execute_tool_with_retry(tool, params, description)
+            duration = time.time() - start_time
+            
+            # デバッグ: 実行結果を確認
+            if self.verbose:
+                safe_result = safe_str(result)
+                result_preview = safe_result[:200] + "..." if len(safe_result) > 200 else safe_result
+                print(f"[DEBUG] Tool: {tool}, Result: {result_preview}")
+            
+            self.display.show_step_complete(description, duration, success=True)
+            
+            self.session_stats["successful_tasks"] += 1
+            
+            return {
+                "step": step_num,
+                "tool": tool,
+                "params": params,
+                "result": result,
+                "success": True,
+                "duration": duration,
+                "description": description
+            }
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            error_msg = str(e)
+            
+            self.session_stats["failed_tasks"] += 1
+            
+            return {
+                "step": step_num,
+                "tool": tool,
+                "params": params,
+                "error": error_msg,
+                "success": False,
+                "duration": duration,
+                "description": description
+            }
+    
     async def _interpret_planned_results(self, user_query: str, results: List[Dict]) -> str:
         """計画実行の結果を解釈"""
         # 現在のリクエストのみに焦点を当て、前のタスク結果の混入を防ぐ
         recent_context = self._get_conversation_context_only()
         
-        # 結果をシリアライズ（V6対応）
+        # 結果をシリアライズ
         serializable_results = []
         for r in results:
             result_data = {
-                "step": r.get("step", r.get("task_description", "タスク")),
-                "tool": r.get("tool", "不明"),
+                "step": r["step"],
+                "tool": r["tool"],
                 "success": r["success"],
-                "description": r.get("description", r.get("task_description", "実行完了"))
+                "description": r["description"]
             }
             
             if r["success"]:
@@ -940,10 +915,10 @@ class MCPAgent:
         
         # デバッグ: LLMに渡されるデータを確認
         if self.verbose:
-            self.logger.debug("Serializable results being sent to LLM:")
+            print(f"[DEBUG] Serializable results being sent to LLM:")
             for i, result in enumerate(serializable_results):
                 result_preview = str(result.get("result", "N/A"))[:100] + "..." if len(str(result.get("result", "N/A"))) > 100 else str(result.get("result", "N/A"))
-                self.logger.debug(f"  [{i+1}] Tool: {result['tool']}, Result: {result_preview}")
+                print(f"  [{i+1}] Tool: {result['tool']}, Result: {result_preview}")
         
         # プロンプトテンプレートから取得
         prompt = PromptTemplates.get_result_interpretation_prompt(
@@ -983,27 +958,24 @@ class MCPAgent:
                 return f"申し訳ありませんが、処理中にエラーが発生しました。"
     
     def _get_recent_context(self, max_items: int = None) -> str:
-        """最近の会話文脈を取得（V6版: 状態管理から）"""
+        """最近の会話文脈を取得（実行結果も含む）"""
         if max_items is None:
             max_items = self.config["conversation"]["context_limit"]
         
-        # 状態管理から会話履歴を取得
-        conversation_context = self.state_manager.get_conversation_context(max_items)
-        
-        if not conversation_context:
+        if not self.conversation_history:
             return ""
         
+        recent = self.conversation_history[-max_items:]
         lines = []
-        for entry in conversation_context:
-            role = "User" if entry['role'] == "user" else "Assistant"
+        for h in recent:
+            role = "User" if h['role'] == "user" else "Assistant"
             # 長いメッセージは省略
-            msg = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
-            timestamp = entry.get('timestamp', '')
-            if timestamp:
-                time_str = timestamp.split('T')[1][:5] if 'T' in timestamp else timestamp
-                lines.append(f"[{time_str}] {role}: {msg}")
-            else:
-                lines.append(f"{role}: {msg}")
+            msg = h['message'][:150] + "..." if len(h['message']) > 150 else h['message']
+            lines.append(f"{role}: {msg}")
+            
+            # 実行結果があれば追加
+            if h.get('execution_results'):
+                lines.append(f"実行結果データ: {self._summarize_results(h['execution_results'])}")
         
         return "\n".join(lines)
     
@@ -1012,17 +984,15 @@ class MCPAgent:
         会話文脈のみを取得（実行結果を除外）
         結果解釈時に前のタスク結果の混入を防ぐ
         """
-        # V6では状態管理から会話履歴を取得
-        conversation_context = self.state_manager.get_conversation_context(max_items)
-        
-        if not conversation_context:
+        if not self.conversation_history:
             return ""
         
+        recent = self.conversation_history[-max_items:]
         lines = []
-        for entry in conversation_context:
-            role = "User" if entry['role'] == "user" else "Assistant"
+        for h in recent:
+            role = "User" if h['role'] == "user" else "Assistant"
             # 長いメッセージは省略
-            msg = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
+            msg = h['message'][:150] + "..." if len(h['message']) > 150 else h['message']
             lines.append(f"{role}: {msg}")
             # 実行結果は含めない（混入を防ぐため）
         
@@ -1113,92 +1083,8 @@ class MCPAgent:
         if self.config["development"]["show_api_calls"]:
             print(f"API呼び出し回数: {self.session_stats['total_api_calls']}")
     
-    async def pause_session(self):
-        """セッションを一時停止（ESCキー対応）"""
-        await self.state_manager.pause_all_tasks()
-        print("\n[セッション一時停止] 作業が保存されました。")
-        print("次回再開時に続きから実行できます。")
-        return self.state_manager.get_session_summary()
-    
-    async def resume_session(self) -> Dict[str, Any]:
-        """セッション再開"""
-        await self.state_manager.resume_paused_tasks()
-        summary = self.state_manager.get_session_summary()
-        
-        if summary.get("has_work_to_resume", False):
-            print(f"\n[セッション再開] {summary['pending_tasks']}個のタスクが待機中です")
-            
-            # 実行可能なタスクがある場合は継続実行を提案
-            next_task = self.task_manager.get_next_executable_task()
-            if next_task:
-                print(f"次のタスク: {next_task.description}")
-        else:
-            print("\n[セッション再開] 新しいタスクの準備完了")
-        
-        return summary
-    
-    async def clear_session(self):
-        """現在のセッションをクリア"""
-        await self.state_manager.clear_current_session()
-        print("\n[セッションクリア] 新しいセッションで開始します")
-    
-    def get_session_status(self) -> Dict[str, Any]:
-        """現在のセッション状態を取得"""
-        session_summary = self.state_manager.get_session_summary()
-        task_summary = self.task_manager.get_task_summary()
-        
-        return {
-            "session": session_summary,
-            "tasks": task_summary,
-            "can_resume": session_summary.get("has_work_to_resume", False),
-            "ui_mode": self.ui_mode,
-            "verbose": self.verbose
-        }
-    
-    async def handle_user_response_to_clarification(self, response: str) -> str:
-        """
-        ユーザーのCLARIFICATION回答を処理
-        注意: このメソッドは非推奨です。_handle_pending_tasksを使用してください。
-        """
-        # 新しい処理フローにリダイレクト
-        return await self._handle_pending_tasks(response)
-    
-    async def _generate_simple_task_list_v6(self, user_query: str) -> List[Dict[str, Any]]:
-        """V6用のシンプルなタスクリスト生成"""
-        try:
-            recent_context = self._get_recent_context()
-            tools_info = self.connection_manager.format_tools_for_llm()
-            
-            # シンプルなプロンプトを使用
-            prompt = PromptTemplates.get_simple_task_list_prompt(
-                recent_context=recent_context,
-                user_query=user_query,
-                tools_info=tools_info
-            )
-            
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.3
-            )
-            
-            content = safe_str(response.choices[0].message.content)
-            result = json.loads(content)
-            
-            return result.get("tasks", [])
-            
-        except Exception as e:
-            self.logger.error(f"タスクリスト生成失敗: {e}")
-            # フォールバック処理は削除 - エラー時は空リストを返す
-            return []
-    
     async def close(self):
         """リソースの解放"""
-        # セッションをアーカイブ
-        if self.state_manager.current_session:
-            await self.state_manager.archive_session()
-        
         # 終了時にメトリクス表示
         self._show_execution_metrics()
         await self.connection_manager.close()

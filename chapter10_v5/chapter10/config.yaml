@@ -119,7 +119,6 @@ development:
   # 実行統計を表示
   show_statistics: true
 
-
 # 結果表示設定
 result_display:
   # 結果解釈時の最大文字数（データベース結果等）

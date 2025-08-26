@@ -6,7 +6,7 @@ display:
   # UIモード: basic, rich
   # basic: 従来のシンプルなprint文ベース
   # rich: richライブラリを使った美しいUI（要pip install rich）
-  ui_mode: "basic"
+  ui_mode: "rich"
   
   # タスクリストのスタイル: checkbox, simple, verbose
   style: "checkbox"
@@ -47,25 +47,6 @@ execution:
   
   # ステップ間の待機時間（秒）
   step_delay: 0.1
-  
-  # フォールバック機能の有効/無効（段階的移行用）
-  fallback_enabled: false
-  
-  # タスクリスト最大数（暴走防止）
-  max_tasks: 10
-  
-  # 個別タスクのタイムアウト時間（秒）
-  task_timeout: 30
-  
-  # タスクリスト生成のリトライ戦略
-  retry_strategy:
-    max_retries: 3
-    progressive_temperature: true
-    initial_temperature: 0.1
-    temperature_increment: 0.2
-  
-  # パラメータ解決方式: placeholder (従来), llm_based (新方式), hybrid (段階的移行)
-  parameter_resolution_mode: "llm_based"
 
 # LLM設定
 llm:
@@ -106,7 +87,7 @@ logging:
   file_output: false
   
   # ログファイルのパス（file_outputがtrueの場合）
-  log_file: "mcp_agent.log"
+  log_file: "mcp_agent_v4.log"
 
 # 開発設定
 development:
@@ -118,7 +99,6 @@ development:
   
   # 実行統計を表示
   show_statistics: true
-
 
 # 結果表示設定
 result_display:

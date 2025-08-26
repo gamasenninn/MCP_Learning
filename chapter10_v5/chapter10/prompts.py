@@ -70,73 +70,6 @@ NO_TOOLの場合：
 ```json
 {{"type": "SIMPLE|COMPLEX", "reason": "判定理由"}}
 ```"""
-    
-    @staticmethod
-    def get_execution_type_determination_prompt_v6(
-        recent_context: Optional[str],
-        user_query: str,
-        tools_info: Optional[str] = None
-    ) -> str:
-        """
-        V6版: CLARIFICATION対応の実行方式判定用プロンプトを生成
-        
-        Args:
-            recent_context: 最近の会話文脈
-            user_query: ユーザーの要求
-            tools_info: 利用可能なツール情報
-            
-        Returns:
-            実行方式判定用プロンプト（CLARIFICATION対応版）
-        """
-        context_section = recent_context if recent_context else "（新規会話）"
-        tools_section = tools_info if tools_info else "（ツール情報の取得に失敗しました）"
-        
-        return f"""ユーザーの要求を分析し、適切な実行方式を判定してください。
-
-## 最近の会話
-{context_section}
-
-## ユーザーの要求
-{user_query}
-
-## 利用可能なツール
-{tools_section}
-
-## 判定基準
-- **NO_TOOL**: 日常会話（挨拶・雑談・自己紹介・感想・お礼等のみ）
-- **CLARIFICATION**: 不明な情報があり、ユーザーに確認が必要（「私の年齢」「当社の売上」等）
-- **SIMPLE**: 1-2ステップの単純なタスク（計算、単一API呼び出し等）
-- **COMPLEX**: データベース操作、多段階処理等
-
-## CLARIFICATION判定基準（重要）
-以下のパターンを含む場合はCLARIFICATIONを選択：
-- 「私の〜」「自分の〜」「僕の〜」「俺の〜」
-- 「当社の〜」「うちの〜」「この〜」「その〜」
-- 具体的な数値が不明な計算要求（例：「私の年齢に10を足して」）
-- 詳細不明なデータ要求（例：「私のタスクを表示」）
-
-## 重要な注意
-- 上記のツール一覧を確認し、実行可能なタスクかどうか判定してください
-- 「天気」「温度」「気象」→外部APIツールが必要
-- 「商品」「データベース」「一覧」→データベースツールが必要
-- 「ディレクトリ」「ファイル」「フォルダ」「読む」「書く」「保存」→ファイルシステムツールが必要
-- 利用可能なツールで実行可能な場合はNO_TOOLではありません！
-
-## 出力形式
-NO_TOOLの場合：
-```json
-{{"type": "NO_TOOL", "response": "**Markdown形式**で適切な応答メッセージ", "reason": "判定理由"}}
-```
-
-CLARIFICATIONの場合（不明な情報がある場合）：
-```json
-{{"type": "CLARIFICATION", "reason": "不明な情報があります", "clarification": {{"question": "具体的な質問", "context": "詳細説明"}}}}
-```
-
-その他の場合：
-```json
-{{"type": "SIMPLE|COMPLEX", "reason": "判定理由"}}
-```"""
 
     @staticmethod
     def get_adaptive_task_list_prompt(
@@ -176,11 +109,11 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 「全部」「制限なし」→ LIMIT 50（最大）
 - 「1つ」「最高」「最安」→ LIMIT 1
 
-例：「データベースのテーブル一覧を表示して」
+例：「商品データ一覧を表示して」
 → [
   {{"tool": "list_tables", "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブル構造を確認"}},
-  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを20件表示"}}
+  {{"tool": "get_table_schema", "params": {{"table_name": "products"}}, "description": "商品テーブルのスキーマを確認"}},
+  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを20件表示"}}
 ]
 """
         else:
@@ -210,10 +143,10 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - {max_tasks_note}
 
 ## タスク依存関係の表現
-前のタスクの結果を使用する場合は、自然な表現で記述してください：
-- `"前のタスクの結果"` - 直前のタスク結果を参照
-- `"最初のタスクで取得した都市"` - 特定のタスク結果を参照
-- `"計算結果"` - 前の計算結果を参照
+前のタスクの結果を使用する場合：
+- `"取得した都市名"` - IP情報から取得した都市
+- `"{{{{previous_result}}}}"` - 直前のタスク結果
+- `"{{{{task_1.city}}}}"` - 1番目のタスクのcityフィールド
 
 例：「IPから現在地を調べて天気を取得」
 ```json
@@ -266,58 +199,17 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 計算の場合は演算順序を考慮
 - 天気等の単一API呼び出しは1つのタスクで完結
 
-## get_weatherツール使用時の重要事項
-- 必ずcountry_codeパラメータを指定してください
-- 都市名は適切な国コードと組み合わせて使用してください
-
-## データベース操作時の重要事項
-- 「データを表示」「一覧を見る」→ execute_safe_query でSELECT文を実行
-- 「構造を確認」「スキーマを見る」→ get_table_schema を使用
-- データ表示は必ず execute_safe_query が必要です
-
 ## タスク依存関係の表現
-前のタスクの結果を使用する場合は、自然な表現で記述してください：
-- `"前のタスクの結果"` - 直前のタスク結果を参照
-- `"最初のタスクで取得した都市"` - 特定のタスク結果を参照
-- `"計算結果"` - 前の計算結果を参照
-
-例：「データベースのデータ一覧を表示」
-```json
-{{"tasks": [
-  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを取得して表示"}}
-]}}
-```
-
-例：「データベーステーブルを詳しく調査してデータを表示」
-```json
-{{"tasks": [
-  {{"tool": "list_tables", "params": {{}}, "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブルの構造を確認"}},
-  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM table1"}}, "description": "データを取得して表示"}}
-]}}
-```
-
-例：「複数都市の天気を取得」
-```json
-{{"tasks": [
-  {{"tool": "get_weather", "params": {{"city": "City1", "country_code": "XX"}}, "description": "都市1の天気を取得"}},
-  {{"tool": "get_weather", "params": {{"city": "City2", "country_code": "YY"}}, "description": "都市2の天気を取得"}}
-]}}
-```
+前のタスクの結果を使用する場合：
+- `"取得した都市名"` - IP情報から取得した都市
+- `"{{previous_result}}"` - 直前のタスク結果
+- `"{{task_1.city}}"` - 1番目のタスクのcityフィールド
 
 例：「IPから現在地を調べて天気を取得」
 ```json
 {{"tasks": [
   {{"tool": "get_ip_info", "params": {{}}, "description": "現在のIPアドレスの地理的情報を取得する"}},
-  {{"tool": "get_weather", "params": {{"city": "取得した都市名", "country_code": "JP"}}, "description": "取得した都市の現在の天気を取得する"}}
-]}}
-```
-
-例：「私の年齢に10を足して20を引いて。私の年齢は65歳です。」
-```json
-{{"tasks": [
-  {{"tool": "add", "params": {{"a": 65, "b": 10}}, "description": "年齢65に10を足す"}},
-  {{"tool": "subtract", "params": {{"a": "前の計算結果", "b": 20}}, "description": "前の結果から20を引く"}}
+  {{"tool": "get_weather", "params": {{"city": "取得した都市名"}}, "description": "取得した都市の現在の天気を取得する"}}
 ]}}
 ```
 
@@ -377,11 +269,11 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 「全部」「制限なし」→ LIMIT 50（最大）
 - 「1つ」「最高」「最安」→ LIMIT 1
 
-例：「データベースのテーブル一覧を表示して」
+例：「商品データ一覧を表示して」
 → [
   {{"tool": "list_tables", "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブル構造を確認"}},
-  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを20件表示"}}
+  {{"tool": "get_table_schema", "params": {{"table_name": "products"}}, "description": "商品テーブルのスキーマを確認"}},
+  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを20件表示"}}
 ]
 
 ## 出力形式
