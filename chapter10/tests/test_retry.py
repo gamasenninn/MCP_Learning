@@ -5,6 +5,12 @@
 """
 
 import asyncio
+import sys
+import os
+
+# Add parent directory (chapter10) to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from mcp_agent import MCPAgent
 
 async def test_retry():

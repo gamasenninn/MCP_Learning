@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import json
 
 # 修正後のmcp_agentをインポート
-sys.path.append('.')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 async def test_agent_with_emoji_responses():
     """エージェントが絵文字を含むMCP応答を処理できるかテスト"""

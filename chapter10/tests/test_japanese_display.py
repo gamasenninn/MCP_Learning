@@ -7,7 +7,7 @@ import sys
 import os
 
 # 修正後のconnection_managerをインポートして環境設定を適用
-sys.path.append('.')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from connection_manager import ConnectionManager
 
 def test_japanese_output():

@@ -6,7 +6,7 @@ Test Japanese Hanoi Tower code with different surrogate policies
 import asyncio
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from connection_manager import ConnectionManager
 

@@ -11,7 +11,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # 修正後のconnection_managerをインポート
-sys.path.append('.')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 async def test_connection_manager_encoding():
     """ConnectionManagerのエンコーディング修正をテスト"""
