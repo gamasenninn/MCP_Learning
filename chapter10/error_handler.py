@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Error Handler for MCP Agent V4
+Error Handler for MCP Agent
 エラー処理の一元管理司令塔
 
 すべてのエラー処理をこのクラスで統一管理：

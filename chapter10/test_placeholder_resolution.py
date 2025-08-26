@@ -17,7 +17,7 @@ import copy
 
 # テスト対象のインポート
 sys.path.append('.')
-from mcp_agent import MCPAgentV4
+from mcp_agent import MCPAgent
 
 
 class TestPlaceholderResolution(unittest.TestCase):
@@ -25,12 +25,12 @@ class TestPlaceholderResolution(unittest.TestCase):
 
     def setUp(self):
         """テスト用のセットアップ"""
-        # MCPAgentV4のインスタンスを作成（設定なし）
+        # MCPAgentのインスタンスを作成（設定なし）
         with patch('mcp_agent.ConnectionManager'), \
              patch('mcp_agent.ErrorHandler'), \
              patch('mcp_agent.AsyncOpenAI'):
             
-            self.agent = MCPAgentV4()
+            self.agent = MCPAgent()
 
     def test_japanese_city_extraction(self):
         """日本語都市名の抽出テスト"""
@@ -241,7 +241,7 @@ class TestPlaceholderEdgeCases(unittest.TestCase):
              patch('mcp_agent.ErrorHandler'), \
              patch('mcp_agent.AsyncOpenAI'):
             
-            self.agent = MCPAgentV4()
+            self.agent = MCPAgent()
 
     def test_circular_reference_prevention(self):
         """循環参照の予防テスト（将来の改善点）"""

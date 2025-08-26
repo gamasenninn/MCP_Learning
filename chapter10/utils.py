@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Utility functions for MCP Agent V4
+Utility functions for MCP Agent
 共通ユーティリティ関数
 """
 

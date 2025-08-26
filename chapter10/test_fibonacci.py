@@ -4,14 +4,14 @@
 """
 
 import asyncio
-from mcp_agent import MCPAgentV4
+from mcp_agent import MCPAgent
 
 async def test_fibonacci():
     """フィボナッチ数列生成でAGENT.md改善効果をテスト"""
     print("AGENT.md改善効果テスト: フィボナッチ数列")
     print("=" * 50)
     
-    agent = MCPAgentV4()
+    agent = MCPAgent()
     await agent.initialize()
     
     # フィボナッチ数列リクエスト

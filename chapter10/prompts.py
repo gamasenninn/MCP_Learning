@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Prompt Templates for MCP Agent V4
+Prompt Templates for MCP Agent
 プロンプト管理の一元化
 
 段階的にプロンプトを外部化し、管理を改善する

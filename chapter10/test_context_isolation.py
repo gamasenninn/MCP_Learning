@@ -16,7 +16,7 @@ import json
 
 # テスト対象のインポート
 sys.path.append('.')
-from mcp_agent import MCPAgentV4
+from mcp_agent import MCPAgent
 
 
 class TestContextIsolation(unittest.TestCase):
@@ -24,12 +24,12 @@ class TestContextIsolation(unittest.TestCase):
 
     def setUp(self):
         """テスト用のセットアップ"""
-        # MCPAgentV4のインスタンスを作成（モック使用）
+        # MCPAgentのインスタンスを作成（モック使用）
         with patch('mcp_agent.ConnectionManager'), \
              patch('mcp_agent.ErrorHandler'), \
              patch('mcp_agent.AsyncOpenAI'):
             
-            self.agent = MCPAgentV4()
+            self.agent = MCPAgent()
             
             # 会話履歴のセットアップ
             self.agent.conversation_history = [
@@ -247,7 +247,7 @@ class TestContextEdgeCases(unittest.TestCase):
              patch('mcp_agent.ErrorHandler'), \
              patch('mcp_agent.AsyncOpenAI'):
             
-            self.agent = MCPAgentV4()
+            self.agent = MCPAgent()
 
     def test_very_long_messages(self):
         """非常に長いメッセージの処理テスト"""

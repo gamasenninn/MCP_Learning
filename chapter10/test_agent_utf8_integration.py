@@ -21,14 +21,14 @@ async def test_agent_with_emoji_responses():
     """エージェントが絵文字を含むMCP応答を処理できるかテスト"""
     
     print("=" * 60)
-    print("MCP Agent V4 - UTF-8 Integration Test")
+    print("MCP Agent - UTF-8 Integration Test")
     print("=" * 60)
     print(f"Platform: {sys.platform}")
     print(f"Python version: {sys.version}")
     print()
     
     # エージェントのインポート
-    from mcp_agent import MCPAgentV4
+    from mcp_agent import MCPAgent
     
     # モックのMCPサーバー応答を準備
     mock_mcp_responses = [
@@ -68,7 +68,7 @@ async def test_agent_with_emoji_responses():
     print("-" * 40)
     
     # エージェントの初期化（モック環境）
-    agent = MCPAgentV4(
+    agent = MCPAgent(
         verbose=False,  # 詳細ログを抑制
         use_llm=False   # LLMを使用しない
     )
@@ -126,7 +126,7 @@ async def test_agent_task_generation():
     print("Task Generation Test")
     print("=" * 60)
     
-    from mcp_agent import MCPAgentV4
+    from mcp_agent import MCPAgent
     
     # 日本語を含むユーザー入力のテストケース
     test_inputs = [
@@ -137,7 +137,7 @@ async def test_agent_task_generation():
         "北京と東京の温度を比較して"
     ]
     
-    agent = MCPAgentV4(verbose=False, use_llm=False)
+    agent = MCPAgent(verbose=False, use_llm=False)
     
     print("ユーザー入力の処理テスト:")
     for i, user_input in enumerate(test_inputs, 1):
@@ -222,7 +222,7 @@ async def test_complete_workflow():
     print("Complete Workflow Test")
     print("=" * 60)
     
-    from mcp_agent import MCPAgentV4
+    from mcp_agent import MCPAgent
     from connection_manager import ConnectionManager
     
     # 実際のワークフローをシミュレート
@@ -274,7 +274,7 @@ async def main():
     """メインテスト実行"""
     
     print("\n" + "=" * 70)
-    print(" MCP Agent V4 - UTF-8 Encoding Complete Test Suite")
+    print(" MCP Agent - UTF-8 Encoding Complete Test Suite")
     print("=" * 70)
     print()
     print("このテストは以下を確認します:")

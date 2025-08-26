@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-MCP Agent V4 - Interactive Dialogue Engine
+MCP Agent - Interactive Dialogue Engine
 Claude Code風の対話型エージェント
 
-V4の特徴：
+主な特徴：
 - 対話的逐次実行（依存関係の自動解決）
 - チェックボックス付きタスク表示
 - リアルタイムプログレス
-- V3の知見を活かした設計
+- 過去バージョンの知見を活かした設計
 """
 
 import os
@@ -35,16 +35,16 @@ except ImportError:
 
 
 
-class MCPAgentV4:
+class MCPAgent:
     """
     Claude Code風の対話型MCPエージェント
     
-    V3から引き継いだ要素:
+    過去バージョンから引き継いだ要素:
     - AGENT.mdによるカスタマイズ
     - 会話文脈の活用
     - NO_TOOL判定
     
-    V4の新機能:
+    現在の主要機能:
     - 対話的逐次実行
     - ステップバイステップの可視化
     - 依存関係の自動解決
@@ -167,9 +167,9 @@ class MCPAgentV4:
     
     async def process_request(self, user_query: str) -> str:
         """
-        ユーザーリクエストを対話的に処理（V4の核心機能）
+        ユーザーリクエストを対話的に処理（核心機能）
         
-        V3との違い:
+        特徴:
         - 一度に全タスクを分解せず、ステップごとに対話
         - 前の結果を見てから次の行動を決定
         - 実行過程を視覚的に表示
@@ -204,7 +204,7 @@ class MCPAgentV4:
     
     async def _execute_interactive_dialogue(self, user_query: str) -> str:
         """
-        改良版実行エンジン（V4.1）
+        最終版実行エンジン
         
         複雑なタスクはタスクリスト方式、シンプルなタスクは従来方式
         """
@@ -225,7 +225,7 @@ class MCPAgentV4:
             return await self._execute_with_tasklist(user_query)
     
     async def _determine_execution_type(self, user_query: str) -> Dict:
-        """ユーザーの要求がNO_TOOLかツール実行かを判定（SIMPLE/COMPLEX統合後）"""
+        """ユーザーの要求がNO_TOOLかツール実行かを判定。シンプル・複雑タスクを統合。"""
         recent_context = self._get_recent_context()
         
         # 利用可能なツール情報を取得
@@ -262,7 +262,7 @@ class MCPAgentV4:
             return {"type": "TOOL", "reason": "判定エラーによりデフォルト選択"}
     
     async def _execute_with_tasklist(self, user_query: str) -> str:
-        """統一されたタスクリスト実行メソッド（SIMPLE/COMPLEX統合版）"""
+        """統一されたタスクリスト実行メソッド。シンプル・複雑タスクを統合処理。"""
         
         # リトライ機能付きタスクリスト生成（統一メソッド使用）
         task_list = await self._generate_task_list_with_retry(user_query)
@@ -1092,11 +1092,11 @@ class MCPAgentV4:
 
 async def main():
     """メイン実行関数"""
-    agent = MCPAgentV4()
+    agent = MCPAgent()
     await agent.initialize()
     
     try:
-        print("\nMCP Agent V4 が準備完了しました！")
+        print("\nMCP Agent が準備完了しました！")
         print("終了するには 'quit' または 'exit' を入力してください。")
         print("-" * 60)
         
@@ -1128,7 +1128,7 @@ async def main():
         print("\n\n[中断] Ctrl+Cが押されました。")
     finally:
         await agent.close()
-        print("\nMCP Agent V4 を終了しました。")
+        print("\nMCP Agent を終了しました。")
 
 
 if __name__ == "__main__":

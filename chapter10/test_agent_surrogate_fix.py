@@ -11,13 +11,13 @@ import os
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from mcp_agent import MCPAgentV4
+from mcp_agent import MCPAgent
 
 async def test_agent_with_surrogate():
     """エージェントでサロゲート文字を含む可能性があるリクエストをテスト"""
     
     print("=" * 60)
-    print("MCP Agent V4 - Surrogate Character Fix Test")
+    print("MCP Agent - Surrogate Character Fix Test")
     print("=" * 60)
     
     # Create config file for test (complete version)
@@ -49,7 +49,7 @@ async def test_agent_with_surrogate():
         f.write(config_content)
     
     # Initialize agent
-    agent = MCPAgentV4(config_path)
+    agent = MCPAgent(config_path)
     
     try:
         # Initialize connections

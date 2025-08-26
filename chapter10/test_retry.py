@@ -5,14 +5,14 @@
 """
 
 import asyncio
-from mcp_agent import MCPAgentV4
+from mcp_agent import MCPAgent
 
 async def test_retry():
     """リトライ機能をテスト"""
     print("リトライ機能テスト開始")
     print("=" * 60)
     
-    agent = MCPAgentV4()
+    agent = MCPAgent()
     await agent.initialize()
     
     # テストケース: 存在しないツールを実行してリトライを確認

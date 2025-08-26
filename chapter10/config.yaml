@@ -1,4 +1,4 @@
-# MCP Agent V4 Configuration
+# MCP Agent Configuration
 # Claude Code風対話型エージェントの設定
 
 # 表示設定
@@ -106,7 +106,7 @@ logging:
   file_output: false
   
   # ログファイルのパス（file_outputがtrueの場合）
-  log_file: "mcp_agent_v4.log"
+  log_file: "mcp_agent.log"
 
 # 開発設定
 development:

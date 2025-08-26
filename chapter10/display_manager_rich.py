@@ -75,7 +75,7 @@ class RichDisplayManager:
     def show_banner(self):
         """美しいバナーを表示"""
         banner = Panel.fit(
-            "[bold bright_blue]MCP Agent V4[/bold bright_blue]\n"
+            "[bold bright_blue]MCP Agent[/bold bright_blue]\n"
             "[italic]Interactive Dialogue Engine with Rich UI[/italic]\n"
             "[dim]Claude Code風の対話型エージェント[/dim]",
             style="bright_blue",

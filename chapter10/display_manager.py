@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Display Manager for MCP Agent V4
+Display Manager for MCP Agent
 Claude Code風の視覚的フィードバックを提供
 
 V4での特徴：
@@ -32,9 +32,9 @@ class DisplayManager:
         self.start_time = time.time()
     
     def show_banner(self):
-        """V4のバナーを表示"""
+        """バナーを表示"""
         print("=" * 60)
-        print(" MCP Agent V4 - Interactive Dialogue Engine")
+        print(" MCP Agent - Interactive Dialogue Engine")
         print(" Claude Code風の対話型エージェント")
         print("=" * 60)
     

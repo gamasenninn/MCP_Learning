@@ -59,7 +59,7 @@ def test_surrogate_detection():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("MCP Agent V4 - Basic Surrogate Character Fix Test")  
+    print("MCP Agent - Basic Surrogate Character Fix Test")  
     print("=" * 50)
     
     try:

@@ -1,12 +1,12 @@
-# MCP Agent V4 - Interactive Dialogue Engine
+# MCP Agent - Interactive Dialogue Engine
 
 Claude Code風の対話型MCPエージェント
 
 ## 概要
 
-V4は、V3の知見を活かしながら、Claude Codeのような対話的で視覚的に分かりやすいエージェントです。依存関係管理をLLMに任せることで、よりシンプルで理解しやすい実装を実現しました。
+遅去バージョンの知見を活かし、Claude Codeのような対話的で視覚的に分かりやすいエージェントです。依存関係管理をLLMに任せることで、よりシンプルで理解しやすい実装を実現しました。
 
-## V3からの進化
+## 過去バージョンからの進化
 
 ### V3 → V4の主要な変更点
 
