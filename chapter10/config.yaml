@@ -81,7 +81,7 @@ llm:
 # 会話設定
 conversation:
   # 文脈として参照する会話の件数
-  context_limit: 3
+  context_limit: 10
   
   # 会話履歴の最大保持件数
   max_history: 50
