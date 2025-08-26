@@ -1,11 +1,53 @@
 [
   {
-    "task_id": "clarification_1756219951",
+    "task_id": "task_020935_001",
+    "tool": "get_weather",
+    "params": {
+      "city": "Tokyo",
+      "country_code": "JP"
+    },
+    "description": "東京の現在の天気を取得",
+    "status": "completed",
+    "result": "東京の現在の天気は、気温28.79℃、体感温度32.1℃、湿度69%、気圧1009hPa、天候は薄い雲、風速は8.75m/s、視界は10kmです。",
+    "error": null,
+    "created_at": "2025-08-27T02:09:35.651820",
+    "updated_at": "2025-08-27T02:09:41.125984"
+  },
+  {
+    "task_id": "task_021005_002",
+    "tool": "get_weather",
+    "params": {
+      "city": "Tokyo",
+      "country_code": "JP"
+    },
+    "description": "東京の現在の天気を取得",
+    "status": "completed",
+    "result": "東京の現在の天気は、気温28.79℃、体感温度32.1℃、湿度69%、気圧1009hPa、天候は薄い雲、風速8.75m/s、視界は10kmです。",
+    "error": null,
+    "created_at": "2025-08-27T02:10:05.442000",
+    "updated_at": "2025-08-27T02:10:10.420132"
+  },
+  {
+    "task_id": "task_021005_003",
+    "tool": "get_weather",
+    "params": {
+      "city": "Beijing",
+      "country_code": "CN"
+    },
+    "description": "北京の現在の天気を取得",
+    "status": "completed",
+    "result": "北京市の現在の天気は、温度23.94°C、体感温度24.77°C、湿度91%、気圧1012hPa、天候は適度な雨、風速2.26m/s、視界は8.353kmです。",
+    "error": null,
+    "created_at": "2025-08-27T02:10:05.442000",
+    "updated_at": "2025-08-27T02:10:16.704331"
+  },
+  {
+    "task_id": "clarification_1756228259",
     "tool": "CLARIFICATION",
     "params": {
       "question": "あなたの年齢は何歳ですか？",
-      "context": "要求: 私の年齢に３をかけて１００を引く",
-      "user_query": "私の年齢に３をかけて１００を引く"
+      "context": "要求: 私の年齢に３をかけて２００を引いたらいくつ？",
+      "user_query": "私の年齢に３をかけて２００を引いたらいくつ？"
     },
     "description": "ユーザーに確認",
     "status": "completed",
@@ -13,35 +55,48 @@
       "user_response": "６５さい"
     },
     "error": null,
-    "created_at": "2025-08-26T23:52:31.149491",
-    "updated_at": "2025-08-26T23:52:39.866704"
+    "created_at": "2025-08-27T02:10:59.700840",
+    "updated_at": "2025-08-27T02:11:08.045764"
   },
   {
-    "task_id": "task_235242_001",
+    "task_id": "task_021111_004",
     "tool": "multiply",
     "params": {
       "a": 65,
       "b": 3
     },
-    "description": "年齢65に3をかける",
+    "description": "年齢65に3を掛ける",
     "status": "completed",
-    "result": "CallToolResult(content=[TextContent(type='text', text='195.0', annotations=None, meta=None)], structured_content={'result': 195.0}, data=195.0, is_error=False)",
+    "result": "65歳に3を掛けると、195になります。",
     "error": null,
-    "created_at": "2025-08-26T23:52:42.239938",
-    "updated_at": "2025-08-26T23:52:42.250005"
+    "created_at": "2025-08-27T02:11:11.165288",
+    "updated_at": "2025-08-27T02:11:15.267860"
   },
   {
-    "task_id": "task_235242_002",
+    "task_id": "task_021111_005",
     "tool": "subtract",
     "params": {
-      "a": "DEPENDENCY:{{previous_result}}",
-      "b": 100
+      "a": "前の計算結果",
+      "b": 200
     },
-    "description": "前の結果から100を引く",
+    "description": "前の結果から200を引く",
     "status": "completed",
-    "result": "CallToolResult(content=[TextContent(type='text', text='95.0', annotations=None, meta=None)], structured_content={'result': 95.0}, data=95.0, is_error=False)",
+    "result": "-5.0",
     "error": null,
-    "created_at": "2025-08-26T23:52:42.239938",
-    "updated_at": "2025-08-26T23:52:42.254008"
+    "created_at": "2025-08-27T02:11:11.166293",
+    "updated_at": "2025-08-27T02:11:18.406838"
+  },
+  {
+    "task_id": "task_021230_006",
+    "tool": "execute_python",
+    "params": {
+      "code": "def fibonacci(n): a, b = 0, 1; result = []; for _ in range(n): result.append(a); a, b = b, a + b; return result; print(fibonacci(20))"
+    },
+    "description": "フィボナッチ数列を20個表示する",
+    "status": "completed",
+    "result": "[0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181]",
+    "error": null,
+    "created_at": "2025-08-27T02:12:30.646187",
+    "updated_at": "2025-08-27T02:12:40.131849"
   }
 ]

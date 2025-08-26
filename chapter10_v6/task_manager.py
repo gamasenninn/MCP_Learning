@@ -135,11 +135,8 @@ class TaskManager:
                 if clarification:
                     return processed_params, clarification
                 
-                # 依存関係の解決
-                resolved_value = await self._resolve_parameter_dependencies(
-                    param_value, task_index
-                )
-                processed_params[param_name] = resolved_value
+                # LLMが直接解決するため、そのまま保持
+                processed_params[param_name] = param_value
         
         return processed_params, None
     
@@ -165,33 +162,6 @@ class TaskManager:
         # 必要に応じてLLMが初期判定段階でCLARIFICATIONを生成する
         return None
     
-    
-    async def _resolve_parameter_dependencies(self, param_value: str, task_index: int) -> str:
-        """
-        パラメータの依存関係を解決
-        
-        Args:
-            param_value: パラメータ値
-            task_index: 現在のタスクインデックス
-            
-        Returns:
-            解決済みパラメータ値
-        """
-        # 前のタスクの結果参照パターン
-        dependency_patterns = [
-            r'\{\{previous_result\}\}',
-            r'\{\{task_(\d+)\.(\w+)\}\}'
-        ]
-        
-        resolved_value = param_value
-        
-        for pattern in dependency_patterns:
-            if re.search(pattern, param_value):
-                # 依存関係マーカーとして保持（実行時に解決）
-                resolved_value = f"DEPENDENCY:{param_value}"
-                break
-        
-        return resolved_value
     
     async def _create_clarification_task(
         self, 
@@ -287,133 +257,8 @@ class TaskManager:
         
         return updated
     
-    async def resolve_task_dependencies(self, task: TaskState, completed_tasks: List[TaskState]) -> TaskState:
-        """
-        タスクの依存関係を実行時に解決
-        
-        Args:
-            task: 実行するタスク
-            completed_tasks: 完了済みタスクのリスト
-            
-        Returns:
-            依存関係が解決されたタスク
-        """
-        resolved_task = TaskState(
-            task_id=task.task_id,
-            tool=task.tool,
-            params=task.params.copy(),
-            description=task.description,
-            status=task.status,
-            result=task.result,
-            error=task.error,
-            created_at=task.created_at,
-            updated_at=datetime.now().isoformat()
-        )
-        
-        # 各パラメータの依存関係を解決
-        for param_name, param_value in task.params.items():
-            if isinstance(param_value, str):
-                # DEPENDENCY:プレフィックス付き または 直接的な依存関係
-                if param_value.startswith("DEPENDENCY:"):
-                    original_param = param_value[11:]  # "DEPENDENCY:" を削除
-                    resolved_value = await self._resolve_dependency_value(
-                        original_param, completed_tasks
-                    )
-                    resolved_task.params[param_name] = resolved_value
-                # 直接的な {previous_result} パターン
-                elif "{previous_result}" in param_value or "{{previous_result}}" in param_value:
-                    resolved_value = await self._resolve_dependency_value(
-                        param_value, completed_tasks
-                    )
-                    resolved_task.params[param_name] = resolved_value
-        
-        return resolved_task
     
-    async def _resolve_dependency_value(self, dependency_param: str, completed_tasks: List[TaskState]) -> any:
-        """依存関係の値を解決"""
-        if not completed_tasks:
-            return dependency_param
-            
-        # 最新の結果を取得
-        last_result = completed_tasks[-1].result
-        
-        # {{previous_result}} または {previous_result} パターン
-        if "{previous_result}" in dependency_param or "{{previous_result}}" in dependency_param:
-            # MCP応答から数値を抽出
-            extracted_value = self._extract_numeric_value(last_result)
-            if extracted_value is not None:
-                return extracted_value
-            return str(last_result) if last_result else dependency_param
-        
-        # {{task_N.field}} パターン
-        task_ref_match = re.search(r'\{\{task_(\d+)\.(\w+)\}\}', dependency_param)
-        if task_ref_match:
-            task_num = int(task_ref_match.group(1)) - 1  # 0-based index
-            field_name = task_ref_match.group(2)
-            
-            if task_num < len(completed_tasks):
-                task_result = completed_tasks[task_num].result
-                if isinstance(task_result, dict) and field_name in task_result:
-                    return task_result[field_name]
-        
-        
-        return dependency_param
     
-    def _extract_numeric_value(self, mcp_result) -> any:
-        """MCP応答から数値を抽出"""
-        if mcp_result is None:
-            return None
-        
-        # CallToolResultオブジェクトを直接処理
-        if hasattr(mcp_result, 'data'):
-            data = mcp_result.data
-            if isinstance(data, (int, float)):
-                return data
-            elif isinstance(data, str) and data.replace('.', '').replace('-', '').isdigit():
-                try:
-                    return float(data)
-                except ValueError:
-                    pass
-        
-        # structured_contentからの抽出
-        if hasattr(mcp_result, 'structured_content') and isinstance(mcp_result.structured_content, dict):
-            result_value = mcp_result.structured_content.get('result')
-            if isinstance(result_value, (int, float)):
-                return result_value
-            
-        # MCP応答の文字列表現から数値を探す（後方互換性）
-        result_str = str(mcp_result)
-        
-        # structured_content.result を探す
-        if 'structured_content' in result_str:
-            import re
-            struct_match = re.search(r"'result':\s*([0-9.]+)", result_str)
-            if struct_match:
-                try:
-                    return float(struct_match.group(1))
-                except ValueError:
-                    pass
-        
-        # data= パターンを探す
-        data_match = re.search(r"data=([0-9.]+)", result_str)
-        if data_match:
-            try:
-                return float(data_match.group(1))
-            except ValueError:
-                pass
-        
-        # TextContentのtext内の数値を探す
-        text_match = re.search(r"text='([^']*)'", result_str)
-        if text_match:
-            text_content = text_match.group(1)
-            number_match = re.search(r'([0-9.]+)', text_content)
-            if number_match:
-                try:
-                    return float(number_match.group(1))
-                except ValueError:
-                    pass
-        
-        return None
     
     def get_next_executable_task(self) -> Optional[TaskState]:
         """実行可能な次のタスクを取得"""

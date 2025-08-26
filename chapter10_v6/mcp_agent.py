@@ -448,15 +448,14 @@ class MCPAgent:
             # V6用のシンプル進行状況表示
             print(f"\n[実行中] {task.description}...")
             
-            # 依存関係を解決
-            completed_tasks = self.state_manager.get_completed_tasks()
-            resolved_task = await self.task_manager.resolve_task_dependencies(task, completed_tasks)
+            # LLMベースでパラメータを解決
+            resolved_params = await self._generate_params_with_llm_v6(task, execution_context)
             
             # タスク実行（リトライ機能付き）
             start_time = time.time()
             result = await self._execute_tool_with_retry(
-                tool=resolved_task.tool,
-                params=resolved_task.params,
+                tool=task.tool,
+                params=resolved_params,
                 description=task.description
             )
             duration = time.time() - start_time
@@ -697,6 +696,76 @@ class MCPAgent:
             return await self._resolve_params_with_llm(task, execution_context)
         
         return resolved_params
+    
+    async def _generate_params_with_llm_v6(self, task: TaskState, execution_context: List[Dict]) -> Dict:
+        """V6用: LLMが実行文脈を理解して直接パラメータを生成"""
+        tool = task.tool
+        params = task.params
+        description = task.description
+        
+        # 実行文脈から結果情報を抽出
+        context_info = []
+        if execution_context:
+            for i, ctx in enumerate(execution_context):
+                if ctx.get("success"):
+                    result_str = str(ctx.get("result", ""))
+                    task_desc = ctx.get("task_description", "不明なタスク")
+                    context_info.append(f"タスク{i+1}: {task_desc} → 結果: {result_str}")
+        
+        context_str = "\n".join(context_info) if context_info else "前の実行結果はありません"
+        
+        prompt = f"""次のタスクを実行するためのパラメータを、実行履歴から適切に決定してください。
+
+## 実行するタスク
+- ツール: {tool}
+- 説明: {description}
+- 元のパラメータ: {json.dumps(params, ensure_ascii=False)}
+
+## これまでの実行履歴
+{context_str}
+
+## 指示
+前の実行結果を参考にして、このタスクに最適なパラメータを決定してください。
+前のタスクの数値結果を使う場合は、その数値を直接パラメータに設定してください。
+
+## 出力形式（JSON）
+```json
+{{
+  "resolved_params": {{実際のパラメータ値}},
+  "reasoning": "パラメータを決定した理由"
+}}
+```"""
+
+        try:
+            response = await self.llm.chat.completions.create(
+                model=self.config["llm"]["model"],
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            
+            response_text = response.choices[0].message.content
+            
+            # JSONブロックを抽出
+            import re
+            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+                resolved_params = result.get("resolved_params", params)
+                reasoning = result.get("reasoning", "")
+                
+                if self.verbose:
+                    print(f"[V6パラメータ解決] {reasoning}")
+                
+                return resolved_params
+            
+            if self.verbose:
+                print(f"[V6パラメータ解決失敗] JSON解析エラー: {response_text[:100]}...")
+            return params
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"[V6パラメータ解決エラー] {e}")
+            return params
     
     def _build_judgment_prompt(
         self, 
@@ -1037,16 +1106,8 @@ class MCPAgent:
         params = task.get("params", {})
         description = task.get("description", f"{tool}を実行")
         
-        # パラメータ解決処理（設定に応じて方式を選択）
-        if execution_context:
-            resolution_mode = self.config.get("execution", {}).get("parameter_resolution_mode", "placeholder")
-            
-            if resolution_mode == "llm_based":
-                params = await self._resolve_params_with_llm(task, execution_context)
-            elif resolution_mode == "hybrid":
-                params = await self._resolve_params_hybrid(task, execution_context)
-            else:  # placeholder (従来方式)
-                params = self._resolve_placeholders(params, execution_context)
+        # V6では_execute_task_sequence_v6で既に解決されているため、スキップ
+        # この古いタスクリスト実行は今後削除予定
         
         # ステップ開始の表示
         self.display.show_step_start(step_num, "?", description)
