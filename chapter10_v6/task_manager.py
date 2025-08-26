@@ -211,7 +211,7 @@ class TaskManager:
         return ClarificationRequest(
             question="計算に必要な数値を教えてください。",
             context=f"要求: {user_query}\n具体的な数値や値が必要です。どのような値を使って計算しますか？",
-            suggested_values=["例: 100, 200", "例: 50 + 30", "例: 私の年齢は25歳"],
+            suggested_values=["例: 数値を入力してください"],
             parameter_name=param_name
         )
     

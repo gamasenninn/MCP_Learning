@@ -312,8 +312,18 @@ class MCPAgent:
         if self.task_manager.has_clarification_tasks():
             for task in pending_tasks:
                 if task.tool == "CLARIFICATION" and task.status == "pending":
-                    # ユーザーの回答として処理
-                    return await self.handle_user_response_to_clarification(user_query)
+                    # CLARIFICATIONタスクを完了としてマーク
+                    await self.state_manager.move_task_to_completed(task.task_id, {"user_response": user_query})
+                    
+                    # 元のクエリとユーザー応答を組み合わせて新しいクエリを作成
+                    original_query = task.params.get("user_query", "")
+                    combined_query = f"{original_query}（{user_query}）"
+                    
+                    # 状態をリセットして新しいクエリとして処理
+                    await self.state_manager.set_user_query(combined_query, "TOOL")
+                    
+                    # LLMに新しいタスクリストを生成させる
+                    return await self._execute_with_tasklist_v6(combined_query)
         
         # 通常のタスクを継続実行
         return await self._continue_pending_tasks(user_query)
@@ -1056,9 +1066,9 @@ class MCPAgent:
         
         # デバッグ: ツール実行直前のパラメータを確認
         if self.verbose and tool == "execute_python":
-            print(f"[DEBUG] About to execute {tool} with full params:")
+            self.logger.debug(f"About to execute {tool} with full params:")
             for k, v in params.items():
-                print(f"  {k}: {safe_str(v, use_repr=True)}")
+                self.logger.debug(f"  {k}: {safe_str(v, use_repr=True)}")
         
         self.display.show_tool_call(tool, params)
         
@@ -1073,7 +1083,7 @@ class MCPAgent:
             if self.verbose:
                 safe_result = safe_str(result)
                 result_preview = safe_result[:200] + "..." if len(safe_result) > 200 else safe_result
-                print(f"[DEBUG] Tool: {tool}, Result: {result_preview}")
+                self.logger.debug(f"Tool: {tool}, Result: {result_preview}")
             
             self.display.show_step_complete(description, duration, success=True)
             
@@ -1139,10 +1149,10 @@ class MCPAgent:
         
         # デバッグ: LLMに渡されるデータを確認
         if self.verbose:
-            print(f"[DEBUG] Serializable results being sent to LLM:")
+            self.logger.debug("Serializable results being sent to LLM:")
             for i, result in enumerate(serializable_results):
                 result_preview = str(result.get("result", "N/A"))[:100] + "..." if len(str(result.get("result", "N/A"))) > 100 else str(result.get("result", "N/A"))
-                print(f"  [{i+1}] Tool: {result['tool']}, Result: {result_preview}")
+                self.logger.debug(f"  [{i+1}] Tool: {result['tool']}, Result: {result_preview}")
         
         # プロンプトテンプレートから取得
         prompt = PromptTemplates.get_result_interpretation_prompt(
@@ -1355,60 +1365,12 @@ class MCPAgent:
         }
     
     async def handle_user_response_to_clarification(self, response: str) -> str:
-        """ユーザーのCLARIFICATION回答を処理"""
-        # 最新のCLARIFICATIONタスクを取得
-        pending_tasks = self.state_manager.get_pending_tasks()
-        
-        for task in pending_tasks:
-            if task.tool == "CLARIFICATION" and task.status == "pending":
-                # CLARIFICATIONタスクを完了としてマーク
-                await self.state_manager.move_task_to_completed(task.task_id, {"user_response": response})
-                
-                # 年齢の数値を抽出
-                import re
-                age_match = re.search(r'(\d+)', response)
-                if age_match:
-                    age = int(age_match.group(1))
-                    
-                    # 実際の計算タスクを作成
-                    from state_manager import TaskState
-                    calc_task = TaskState(
-                        task_id=f"calc_{int(time.time())}",
-                        tool="execute_python",
-                        params={"code": f"age = {age}\nresult = age + 10\nprint(f'{{age}}歳に10を足すと{{result}}歳になります')"},
-                        description=f"{age}歳に10を加算",
-                        status="pending"
-                    )
-                    
-                    # タスクを状態管理に追加
-                    await self.state_manager.add_pending_task(calc_task)
-                    
-                    # 計算タスクを実行
-                    try:
-                        result = await self.connection_manager.call_tool(calc_task.tool, calc_task.params)
-                        safe_result = safe_str(result)
-                        
-                        # 結果を状態管理に保存
-                        await self.state_manager.move_task_to_completed(calc_task.task_id, safe_result)
-                        
-                        # 結果をLLMで解釈して自然な回答を生成
-                        execution_context = [{
-                            "success": True,
-                            "result": safe_result,
-                            "task_description": calc_task.description
-                        }]
-                        
-                        return await self._interpret_planned_results(
-                            f"私の年齢（{age}歳）に10を足して", execution_context
-                        )
-                        
-                    except Exception as e:
-                        await self.state_manager.move_task_to_completed(calc_task.task_id, error=str(e))
-                        return f"計算エラー: {str(e)}"
-                else:
-                    return "年齢を数値で教えてください。例：25歳、30才 など"
-        
-        return "CLARIFICATIONタスクが見つかりません。"
+        """
+        ユーザーのCLARIFICATION回答を処理
+        注意: このメソッドは非推奨です。_handle_pending_tasksを使用してください。
+        """
+        # 新しい処理フローにリダイレクト
+        return await self._handle_pending_tasks(response)
     
     async def _generate_simple_task_list_v6(self, user_query: str) -> List[Dict[str, Any]]:
         """V6用のシンプルなタスクリスト生成"""
@@ -1436,34 +1398,9 @@ class MCPAgent:
             return result.get("tasks", [])
             
         except Exception as e:
-            print(f"[エラー] タスクリスト生成失敗: {e}")
-            # フォールバック：推測でタスクを生成
-            if "天気" in user_query or "weather" in user_query.lower():
-                city = "Tokyo"
-                if "東京" in user_query:
-                    city = "Tokyo"
-                elif "大阪" in user_query:
-                    city = "Osaka"
-                elif "名古屋" in user_query:
-                    city = "Nagoya"
-                    
-                return [
-                    {
-                        "tool": "get_weather",
-                        "params": {"city": city},
-                        "description": f"{city}の天気を取得"
-                    }
-                ]
-            elif "計算" in user_query or "+" in user_query or "-" in user_query:
-                return [
-                    {
-                        "tool": "execute_python",
-                        "params": {"code": "result = eval(input('計算式を入力してください: '))\nprint(f'結果: {result}')"},
-                        "description": "計算を実行"
-                    }
-                ]
-            else:
-                return []
+            self.logger.error(f"タスクリスト生成失敗: {e}")
+            # フォールバック処理は削除 - エラー時は空リストを返す
+            return []
     
     async def close(self):
         """リソースの解放"""
