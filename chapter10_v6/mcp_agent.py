@@ -259,7 +259,7 @@ class MCPAgent:
             return await self._handle_clarification_needed(user_query, execution_result)
         else:
             # SIMPLE/COMPLEX統合：全てのツール実行要求を統一メソッドで処理
-            return await self._execute_with_tasklist_v6(user_query)
+            return await self._execute_with_tasklist(user_query)
     
     async def _determine_execution_type_v6(self, user_query: str) -> Dict:
         """V6版: CLARIFICATION対応の実行方式判定"""
@@ -322,7 +322,7 @@ class MCPAgent:
                     await self.state_manager.set_user_query(combined_query, "TOOL")
                     
                     # LLMに新しいタスクリストを生成させる
-                    return await self._execute_with_tasklist_v6(combined_query)
+                    return await self._execute_with_tasklist(combined_query)
         
         # 通常のタスクを継続実行
         return await self._continue_pending_tasks(user_query)
@@ -385,7 +385,7 @@ class MCPAgent:
             await self.state_manager.move_task_to_completed(task.task_id, error=str(e))
             return f"タスク実行エラー: {task.description}\nエラー: {str(e)}"
     
-    async def _execute_with_tasklist_v6(self, user_query: str) -> str:
+    async def _execute_with_tasklist(self, user_query: str) -> str:
         """V6版タスクリスト実行メソッド - 状態管理対応"""
         
         # V6用のシンプルなタスク生成
@@ -415,10 +415,10 @@ class MCPAgent:
                 return await self._handle_clarification_task(clarification_task)
         
         # 通常のタスクリスト実行
-        return await self._execute_task_sequence_v6(tasks, user_query)
+        return await self._execute_task_sequence(tasks, user_query)
     
-    async def _execute_task_sequence_v6(self, tasks: List[TaskState], user_query: str) -> str:
-        """V6版タスク順次実行"""
+    async def _execute_task_sequence(self, tasks: List[TaskState], user_query: str) -> str:
+        """タスク順次実行"""
         
         # チェックリストを表示（既存の表示ロジックを使用）
         task_list_for_display = [
@@ -449,7 +449,7 @@ class MCPAgent:
             print(f"\n[実行中] {task.description}...")
             
             # LLMベースでパラメータを解決
-            resolved_params = await self._generate_params_with_llm_v6(task, execution_context)
+            resolved_params = await self._generate_params_with_llm(task, execution_context)
             
             # タスク実行（リトライ機能付き）
             start_time = time.time()
@@ -503,8 +503,8 @@ class MCPAgent:
         
         return "\n".join(formatted_context)
     
-    async def _generate_params_with_llm_v6(self, task: TaskState, execution_context: List[Dict]) -> Dict:
-        """V6用: LLMが実行文脈を理解して直接パラメータを生成"""
+    async def _generate_params_with_llm(self, task: TaskState, execution_context: List[Dict]) -> Dict:
+        """LLMが実行文脈を理解して直接パラメータを生成"""
         tool = task.tool
         params = task.params
         description = task.description
