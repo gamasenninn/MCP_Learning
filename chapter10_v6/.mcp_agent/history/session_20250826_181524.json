@@ -1,0 +1,66 @@
+{
+  "session_id": "session_20250826_181524",
+  "created_at": "2025-08-26T18:15:24.059886",
+  "last_active": "2025-08-26T18:15:24.059886",
+  "conversation_context": [
+    {
+      "role": "user",
+      "content": "東京の天気を教えて",
+      "timestamp": "2025-08-26T18:15:29.333219"
+    },
+    {
+      "role": "user",
+      "content": "私の年齢に１０を足して",
+      "timestamp": "2025-08-26T18:24:39.437671"
+    },
+    {
+      "role": "user",
+      "content": "６５才です。",
+      "timestamp": "2025-08-26T18:25:05.450514"
+    },
+    {
+      "role": "user",
+      "content": "私の年齢に１０を足して",
+      "timestamp": "2025-08-26T18:29:50.222767"
+    },
+    {
+      "role": "user",
+      "content": "６５です",
+      "timestamp": "2025-08-26T18:29:57.486804"
+    }
+  ],
+  "current_user_query": "私の年齢に１０を足して",
+  "execution_type": "CLARIFICATION",
+  "pending_tasks": [
+    {
+      "task_id": "clarification_1756200281",
+      "tool": "CLARIFICATION",
+      "params": {
+        "question": "あなたの年齢は何歳ですか？",
+        "context": "要求: 私の年齢に１０を足して",
+        "user_query": "私の年齢に１０を足して"
+      },
+      "description": "ユーザーに確認",
+      "status": "pending",
+      "result": null,
+      "error": null,
+      "created_at": "2025-08-26T18:24:41.147612",
+      "updated_at": "2025-08-26T18:24:41.147612"
+    }
+  ],
+  "completed_tasks": [
+    {
+      "task_id": "task_181533_001",
+      "tool": "get_weather",
+      "params": {
+        "city": "Tokyo"
+      },
+      "description": "東京の現在の天気を取得する",
+      "status": "completed",
+      "result": "CallToolResult(content=[TextContent(type='text', text='{\"city\":\"東京都\",\"country\":\"JP\",\"temperature\":31.08,\"feels_like\":37.21,\"humidity\":68,\"pressure\":1009,\"weather_main\":\"Clouds\",\"weather_description\":\"薄い雲\",\"wind_speed\":9.77,\"visibility\":10.0,\"timestamp\":\"2025-08-26T18:15:33.385872\"}', annotations=None, meta=None)], structured_content={'city': '東京都', 'country': 'JP', 'temperature': 31.08, 'feels_like': 37.21, 'humidity': 68, 'pressure': 1009, 'weather_main': 'Clouds', 'weather_description': '薄い雲', 'wind_speed': 9.77, 'visibility': 10.0, 'timestamp': '2025-08-26T18:15:33.385872'}, data={'city': '東京都', 'country': 'JP', 'temperature': 31.08, 'feels_like': 37.21, 'humidity': 68, 'pressure': 1009, 'weather_main': 'Clouds', 'weather_description': '薄い雲', 'wind_speed': 9.77, 'visibility': 10.0, 'timestamp': '2025-08-26T18:15:33.385872'}, is_error=False)",
+      "error": null,
+      "created_at": "2025-08-26T18:15:33.046676",
+      "updated_at": "2025-08-26T18:15:33.391254"
+    }
+  ]
+}

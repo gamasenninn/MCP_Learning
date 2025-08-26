@@ -1,0 +1,26 @@
+{
+  "session_id": "session_20250826_180153",
+  "created_at": "2025-08-26T18:01:53.073830",
+  "last_active": "2025-08-26T18:01:53.073830",
+  "conversation_context": [
+    {
+      "role": "user",
+      "content": "東京の天気を調べて",
+      "timestamp": "2025-08-26T18:02:02.025711"
+    }
+  ],
+  "current_user_query": "東京の天気を調べて",
+  "execution_type": "TOOL",
+  "pending_tasks": [],
+  "completed_tasks": [
+    {
+      "task_id": "task_180206_001",
+      "tool": "get_weather",
+      "params": {
+        "city": "Tokyo"
+      },
+      "description": "東京の現在の天気を取得する",
+      "status": "completed",
+      "result": {
+        "content": [
+          
