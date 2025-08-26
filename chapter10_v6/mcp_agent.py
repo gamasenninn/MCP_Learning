@@ -317,7 +317,15 @@ class MCPAgent:
                     
                     # 元のクエリとユーザー応答を組み合わせて新しいクエリを作成
                     original_query = task.params.get("user_query", "")
-                    combined_query = f"{original_query}（{user_query}）"
+                    question = task.params.get("question", "")
+                    
+                    # より明確な形式でLLMが理解しやすく構成
+                    if "年齢" in question:
+                        combined_query = f"{original_query}。私の年齢は{user_query}歳です。"
+                    elif "何" in question or "どの" in question or "いくつ" in question:
+                        combined_query = f"{original_query}。その値は{user_query}です。"
+                    else:
+                        combined_query = f"{original_query}。{question}の答えは{user_query}です。"
                     
                     # 状態をリセットして新しいクエリとして処理
                     await self.state_manager.set_user_query(combined_query, "TOOL")

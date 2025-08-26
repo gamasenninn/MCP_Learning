@@ -1,0 +1,99 @@
+{
+  "session_id": "session_20250826_185356",
+  "created_at": "2025-08-26T18:53:56.927386",
+  "last_active": "2025-08-26T18:53:56.927386",
+  "conversation_context": [
+    {
+      "role": "user",
+      "content": "calculate 100 + 200 + 300, then multiply the result by 2",
+      "timestamp": "2025-08-26T18:53:58.679198"
+    },
+    {
+      "role": "user",
+      "content": "私の年齢に１０を足して",
+      "timestamp": "2025-08-26T18:54:30.437728"
+    },
+    {
+      "role": "user",
+      "content": "６５",
+      "timestamp": "2025-08-26T18:54:38.165482"
+    }
+  ],
+  "current_user_query": "私の年齢に１０を足して",
+  "execution_type": "CLARIFICATION",
+  "pending_tasks": [],
+  "completed_tasks": [
+    {
+      "task_id": "task_185403_001",
+      "tool": "add",
+      "params": {
+        "a": 100,
+        "b": 200
+      },
+      "description": "100と200を加算する",
+      "status": "completed",
+      "result": "CallToolResult(content=[TextContent(type='text', text='300.0', annotations=None, meta=None)], structured_content={'result': 300.0}, data=300.0, is_error=False)",
+      "error": null,
+      "created_at": "2025-08-26T18:54:03.835512",
+      "updated_at": "2025-08-26T18:54:03.848013"
+    },
+    {
+      "task_id": "task_185403_002",
+      "tool": "add",
+      "params": {
+        "a": "{previous_result}",
+        "b": 300
+      },
+      "description": "前の結果に300を加算する",
+      "status": "completed",
+      "result": "CallToolResult(content=[TextContent(type='text', text='600.0', annotations=None, meta=None)], structured_content={'result': 600.0}, data=600.0, is_error=False)",
+      "error": null,
+      "created_at": "2025-08-26T18:54:03.837510",
+      "updated_at": "2025-08-26T18:54:03.852013"
+    },
+    {
+      "task_id": "task_185403_003",
+      "tool": "multiply",
+      "params": {
+        "a": "{previous_result}",
+        "b": 2
+      },
+      "description": "前の結果を2倍する",
+      "status": "completed",
+      "result": "CallToolResult(content=[TextContent(type='text', text='1200.0', annotations=None, meta=None)], structured_content={'result': 1200.0}, data=1200.0, is_error=False)",
+      "error": null,
+      "created_at": "2025-08-26T18:54:03.837510",
+      "updated_at": "2025-08-26T18:54:03.854814"
+    },
+    {
+      "task_id": "clarification_1756202072",
+      "tool": "CLARIFICATION",
+      "params": {
+        "question": "あなたの年齢は何歳ですか？",
+        "context": "要求: 私の年齢に１０を足して",
+        "user_query": "私の年齢に１０を足して"
+      },
+      "description": "ユーザーに確認",
+      "status": "completed",
+      "result": {
+        "user_response": "６５"
+      },
+      "error": null,
+      "created_at": "2025-08-26T18:54:32.071165",
+      "updated_at": "2025-08-26T18:54:38.167488"
+    },
+    {
+      "task_id": "calc_1756202078",
+      "tool": "execute_python",
+      "params": {
+        "code": "age = 65\nresult = age + 10\nprint(f'{age}歳に10を足すと{result}歳になります')"
+      },
+      "description": "65歳に10を加算",
+      "status": "completed",
+      "result": "CallToolResult(content=[TextContent(type='text', text='成功:\\n65歳に10を足すと75歳になりま??\\n', annotations=None, meta=None)], structured_content={'result': '成功:\\n65歳に10を足すと75歳になりま??\\n'}, data='成功:\\n65歳に10を足すと75歳になりま??\\n', is_error=False)",
+      "error": null,
+      "created_at": "2025-08-26T18:54:38.170746",
+      "updated_at": "2025-08-26T18:54:38.199362"
+    }
+  ]
+}

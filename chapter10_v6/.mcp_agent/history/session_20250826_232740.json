@@ -1,0 +1,16 @@
+{
+  "session_id": "session_20250826_232740",
+  "created_at": "2025-08-26T23:27:40.291188",
+  "last_active": "2025-08-26T23:27:40.291188",
+  "conversation_context": [
+    {
+      "role": "user",
+      "content": "遘√?ｮ蟷ｴ鮨｢縺ｫ?ｼ偵ｒ縺九￠縺ｦ?ｼ托ｼ撰ｼ舌ｒ蠑輔＞縺ｦ",
+      "timestamp": "2025-08-26T23:27:40.292189"
+    }
+  ],
+  "current_user_query": "遘√?ｮ蟷ｴ鮨｢縺ｫ?ｼ偵ｒ縺九￠縺ｦ?ｼ托ｼ撰ｼ舌ｒ蠑輔＞縺ｦ",
+  "execution_type": "TOOL",
+  "pending_tasks": [],
+  "completed_tasks": []
+}

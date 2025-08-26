@@ -317,6 +317,14 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 ]}}
 ```
 
+例：「私の年齢に10を足して20を引いて。私の年齢は65歳です。」
+```json
+{{"tasks": [
+  {{"tool": "add", "params": {{"a": 65, "b": 10}}, "description": "年齢65に10を足す"}},
+  {{"tool": "subtract", "params": {{"a": "{{{{previous_result}}}}", "b": 20}}, "description": "前の結果から20を引く"}}
+]}}
+```
+
 ## 出力形式
 ```json
 {{"tasks": [
