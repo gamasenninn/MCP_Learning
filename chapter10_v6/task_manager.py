@@ -409,6 +409,13 @@ class TaskManager:
         
         # 「取得した○○」パターン
         if "取得した" in dependency_param:
+            # まず数値を抽出してみる（計算結果の場合）
+            if "取得した結果" in dependency_param:
+                extracted_value = self._extract_numeric_value(last_result)
+                if extracted_value is not None:
+                    return extracted_value
+            
+            # 辞書形式の結果からフィールドを推測
             if isinstance(last_result, dict):
                 # よくあるフィールド名を推測
                 common_fields = ['city', 'name', 'location', '都市', '名前', '場所']
@@ -424,8 +431,25 @@ class TaskManager:
         """MCP応答から数値を抽出"""
         if mcp_result is None:
             return None
+        
+        # CallToolResultオブジェクトを直接処理
+        if hasattr(mcp_result, 'data'):
+            data = mcp_result.data
+            if isinstance(data, (int, float)):
+                return data
+            elif isinstance(data, str) and data.replace('.', '').replace('-', '').isdigit():
+                try:
+                    return float(data)
+                except ValueError:
+                    pass
+        
+        # structured_contentからの抽出
+        if hasattr(mcp_result, 'structured_content') and isinstance(mcp_result.structured_content, dict):
+            result_value = mcp_result.structured_content.get('result')
+            if isinstance(result_value, (int, float)):
+                return result_value
             
-        # MCP応答の文字列表現から数値を探す
+        # MCP応答の文字列表現から数値を探す（後方互換性）
         result_str = str(mcp_result)
         
         # structured_content.result を探す
