@@ -150,7 +150,7 @@ class TaskManager:
         user_query: str
     ) -> Optional[ClarificationRequest]:
         """
-        不明な参照（「私の年齢」等）をチェックしてCLARIFICATION要求を生成
+        不明な参照をチェック（LLMベース判定に移行）
         
         Args:
             param_name: パラメータ名
@@ -158,62 +158,13 @@ class TaskManager:
             user_query: ユーザーの要求
             
         Returns:
-            CLARIFICATION要求（必要な場合）
+            CLARIFICATION要求（必要な場合）- 現在は常にNone（LLMに委任）
         """
-        # 不明な参照パターンを検出
-        unknown_patterns = [
-            r'私の.*',
-            r'自分の.*',
-            r'僕の.*', 
-            r'俺の.*',
-            r'当社の.*',
-            r'うちの.*',
-            r'この.*',
-            r'その.*'
-        ]
-        
-        for pattern in unknown_patterns:
-            if re.search(pattern, param_value):
-                # ユーザーに確認が必要
-                return ClarificationRequest(
-                    question=f"「{param_value}」について教えてください。",
-                    context=f"要求: {user_query}\nパラメータ「{param_name}」で「{param_value}」が指定されていますが、具体的な値がわかりません。",
-                    parameter_name=param_name
-                )
-        
-        # 計算に関する不明な値をチェック
-        if self._requires_calculation_clarification(param_value, user_query):
-            return await self._create_calculation_clarification(param_name, param_value, user_query)
-        
+        # LLMが適切にパラメータを生成するようになったため、
+        # ハードコーディングされたパターンマッチングを削除
+        # 必要に応じてLLMが初期判定段階でCLARIFICATIONを生成する
         return None
     
-    def _requires_calculation_clarification(self, param_value: str, user_query: str) -> bool:
-        """計算で値の確認が必要かチェック"""
-        # 具体的な数値が含まれていない計算要求
-        calculation_keywords = ['計算', '足し算', '引き算', '掛け算', '割り算', '合計', '平均']
-        has_calculation = any(keyword in user_query for keyword in calculation_keywords)
-        
-        if has_calculation:
-            # 具体的な数値が含まれているかチェック
-            import re
-            numbers = re.findall(r'\d+', user_query)
-            return len(numbers) < 2  # 2つ未満の数値しかない場合は確認が必要
-        
-        return False
-    
-    async def _create_calculation_clarification(
-        self, 
-        param_name: str, 
-        param_value: str, 
-        user_query: str
-    ) -> ClarificationRequest:
-        """計算に関するCLARIFICATION要求を生成"""
-        return ClarificationRequest(
-            question="計算に必要な数値を教えてください。",
-            context=f"要求: {user_query}\n具体的な数値や値が必要です。どのような値を使って計算しますか？",
-            suggested_values=["例: 数値を入力してください"],
-            parameter_name=param_name
-        )
     
     async def _resolve_parameter_dependencies(self, param_value: str, task_index: int) -> str:
         """
