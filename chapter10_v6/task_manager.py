@@ -180,9 +180,7 @@ class TaskManager:
         # 前のタスクの結果参照パターン
         dependency_patterns = [
             r'\{\{previous_result\}\}',
-            r'\{\{task_(\d+)\.(\w+)\}\}',
-            r'取得した(\w+)',
-            r'前回の結果'
+            r'\{\{task_(\d+)\.(\w+)\}\}'
         ]
         
         resolved_value = param_value
@@ -358,23 +356,6 @@ class TaskManager:
                 if isinstance(task_result, dict) and field_name in task_result:
                     return task_result[field_name]
         
-        # 「取得した○○」パターン
-        if "取得した" in dependency_param:
-            # まず数値を抽出してみる（計算結果の場合）
-            if "取得した結果" in dependency_param:
-                extracted_value = self._extract_numeric_value(last_result)
-                if extracted_value is not None:
-                    return extracted_value
-            
-            # 辞書形式の結果からフィールドを推測
-            if isinstance(last_result, dict):
-                # よくあるフィールド名を推測
-                common_fields = ['city', 'name', 'location', '都市', '名前', '場所']
-                for field in common_fields:
-                    if field in last_result:
-                        return str(last_result[field])
-            
-            return str(last_result) if last_result else dependency_param
         
         return dependency_param
     

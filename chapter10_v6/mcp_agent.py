@@ -291,10 +291,6 @@ class MCPAgent:
             if result.get('type') in ['SIMPLE', 'COMPLEX']:
                 result['type'] = 'TOOL'
             
-            # V6デバッグ用：天気要求の場合は強制的にTOOLにする
-            if "天気" in user_query or "weather" in user_query.lower():
-                result['type'] = 'TOOL'
-                result['reason'] = '天気情報取得のためTOOLに強制判定'
             
             self.logger.info(f"判定: {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}")
             
@@ -320,12 +316,7 @@ class MCPAgent:
                     question = task.params.get("question", "")
                     
                     # より明確な形式でLLMが理解しやすく構成
-                    if "年齢" in question:
-                        combined_query = f"{original_query}。私の年齢は{user_query}歳です。"
-                    elif "何" in question or "どの" in question or "いくつ" in question:
-                        combined_query = f"{original_query}。その値は{user_query}です。"
-                    else:
-                        combined_query = f"{original_query}。{question}の答えは{user_query}です。"
+                    combined_query = f"{original_query}。{user_query}。"
                     
                     # 状態をリセットして新しいクエリとして処理
                     await self.state_manager.set_user_query(combined_query, "TOOL")
@@ -457,42 +448,33 @@ class MCPAgent:
             # V6用のシンプル進行状況表示
             print(f"\n[実行中] {task.description}...")
             
-            try:
-                # 依存関係を解決
-                completed_tasks = self.state_manager.get_completed_tasks()
-                resolved_task = await self.task_manager.resolve_task_dependencies(task, completed_tasks)
-                
-                # タスク実行
-                start_time = time.time()
-                result = await self.connection_manager.call_tool(resolved_task.tool, resolved_task.params)
-                duration = time.time() - start_time
-                
-                # 結果を安全な形式に変換
-                safe_result = safe_str(result)
-                
-                # 成功時の処理
-                await self.state_manager.move_task_to_completed(task.task_id, safe_result)
-                completed.append(i)
-                print(f"[完了] {task.description}")
-                
-                execution_context.append({
-                    "success": True,
-                    "result": safe_result,
-                    "duration": duration,
-                    "task_description": task.description
-                })
-                
-            except Exception as e:
-                # 失敗時の処理
-                await self.state_manager.move_task_to_completed(task.task_id, error=str(e))
-                failed.append(i)
-                print(f"[エラー] {task.description}: {e}")
-                
-                execution_context.append({
-                    "success": False,
-                    "error": str(e),
-                    "task_description": task.description
-                })
+            # 依存関係を解決
+            completed_tasks = self.state_manager.get_completed_tasks()
+            resolved_task = await self.task_manager.resolve_task_dependencies(task, completed_tasks)
+            
+            # タスク実行（リトライ機能付き）
+            start_time = time.time()
+            result = await self._execute_tool_with_retry(
+                tool=resolved_task.tool,
+                params=resolved_task.params,
+                description=task.description
+            )
+            duration = time.time() - start_time
+            
+            # 結果を安全な形式に変換
+            safe_result = safe_str(result)
+            
+            # 成功時の処理
+            await self.state_manager.move_task_to_completed(task.task_id, safe_result)
+            completed.append(i)
+            print(f"[完了] {task.description}")
+            
+            execution_context.append({
+                "success": True,
+                "result": safe_result,
+                "duration": duration,
+                "task_description": task.description
+            })
         
         # V6用の最終状況表示
         if completed:
@@ -660,8 +642,6 @@ class MCPAgent:
 上記の実行結果から、このタスクに最適なパラメータ値を決定してください。
 
 例:
-- "[前のタスクで取得した都市名]" → IPアドレス結果から "Tokyo" を抽出
-- "[前回の結果]" → 前のタスクの具体的な値を使用
 - "{{previous_result}}" → 前のタスクの結果をそのまま使用
 
 ## 出力形式（JSON）
@@ -712,7 +692,7 @@ class MCPAgent:
         
         # 複雑なケース（自然言語的な記述）があるかチェック
         params_str = str(resolved_params)
-        if any(indicator in params_str for indicator in ["[前の", "取得した", "前回の", "結果を"]):
+        if "{" in params_str:
             # 複雑なケースはLLMに委ねる
             return await self._resolve_params_with_llm(task, execution_context)
         
@@ -761,8 +741,7 @@ class MCPAgent:
 - **現在実行中のタスクの目的を必ず尊重してください**
 - 修正は元のパラメータ（{original_params_str}）を基準に行ってください
 - 他のタスクのパラメータに変更してはいけません
-- 例：「Beijing」の天気取得なら → 「Beijing, CN」等に修正
-- 例：「Tokyo」の天気取得なら → 「Tokyo, JP」等に修正
+- 例：都市名に国コードを追加（例："Tokyo" → "Tokyo, JP"）
 
 ## 出力形式（JSON）
 {{
@@ -776,7 +755,7 @@ class MCPAgent:
 
 ## 修正例
 - 構文エラー → コードを正しい構文に修正
-- 都市名エラー → 国コード付きに修正（例：Beijing → Beijing, CN）
+- 都市名エラー → 国コード付きに修正
 - 日本語パラメータ → 英語に変換
 - セミコロン記法 → 複数行に分解"""
     

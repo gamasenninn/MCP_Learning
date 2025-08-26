@@ -176,11 +176,11 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 「全部」「制限なし」→ LIMIT 50（最大）
 - 「1つ」「最高」「最安」→ LIMIT 1
 
-例：「商品データ一覧を表示して」
+例：「データベースのテーブル一覧を表示して」
 → [
   {{"tool": "list_tables", "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "products"}}, "description": "商品テーブルのスキーマを確認"}},
-  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを20件表示"}}
+  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブル構造を確認"}},
+  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを20件表示"}}
 ]
 """
         else:
@@ -268,11 +268,7 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 
 ## get_weatherツール使用時の重要事項
 - 必ずcountry_codeパラメータを指定してください
-- 主要都市の国コード:
-  - 東京: "JP", 大阪: "JP", 名古屋: "JP"
-  - 北京: "CN", 上海: "CN", 香港: "HK" 
-  - ニューヨーク: "US", ロサンゼルス: "US", シカゴ: "US"
-  - ロンドン: "GB", パリ: "FR", ベルリン: "DE"
+- 都市名は適切な国コードと組み合わせて使用してください
 
 ## データベース操作時の重要事項
 - 「データを表示」「一覧を見る」→ execute_safe_query でSELECT文を実行
@@ -285,27 +281,27 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - `"{{previous_result}}"` - 直前のタスク結果
 - `"{{task_1.city}}"` - 1番目のタスクのcityフィールド
 
-例：「商品データの一覧を表示」
+例：「データベースのデータ一覧を表示」
 ```json
 {{"tasks": [
-  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを取得して表示"}}
+  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを取得して表示"}}
 ]}}
 ```
 
-例：「商品テーブルを詳しく調査してデータを表示」
+例：「データベーステーブルを詳しく調査してデータを表示」
 ```json
 {{"tasks": [
   {{"tool": "list_tables", "params": {{}}, "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "products"}}, "description": "商品テーブルの構造を確認"}},
-  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM products"}}, "description": "商品データを取得して表示"}}
+  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブルの構造を確認"}},
+  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM table1"}}, "description": "データを取得して表示"}}
 ]}}
 ```
 
-例：「東京と北京の天気を取得」
+例：「複数都市の天気を取得」
 ```json
 {{"tasks": [
-  {{"tool": "get_weather", "params": {{"city": "Tokyo", "country_code": "JP"}}, "description": "東京の天気を取得"}},
-  {{"tool": "get_weather", "params": {{"city": "Beijing", "country_code": "CN"}}, "description": "北京の天気を取得"}}
+  {{"tool": "get_weather", "params": {{"city": "City1", "country_code": "XX"}}, "description": "都市1の天気を取得"}},
+  {{"tool": "get_weather", "params": {{"city": "City2", "country_code": "YY"}}, "description": "都市2の天気を取得"}}
 ]}}
 ```
 
@@ -381,11 +377,11 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 「全部」「制限なし」→ LIMIT 50（最大）
 - 「1つ」「最高」「最安」→ LIMIT 1
 
-例：「商品データ一覧を表示して」
+例：「データベースのテーブル一覧を表示して」
 → [
   {{"tool": "list_tables", "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "products"}}, "description": "商品テーブルのスキーマを確認"}},
-  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを20件表示"}}
+  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブル構造を確認"}},
+  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを20件表示"}}
 ]
 
 ## 出力形式
