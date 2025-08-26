@@ -266,17 +266,54 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 計算の場合は演算順序を考慮
 - 天気等の単一API呼び出しは1つのタスクで完結
 
+## get_weatherツール使用時の重要事項
+- 必ずcountry_codeパラメータを指定してください
+- 主要都市の国コード:
+  - 東京: "JP", 大阪: "JP", 名古屋: "JP"
+  - 北京: "CN", 上海: "CN", 香港: "HK" 
+  - ニューヨーク: "US", ロサンゼルス: "US", シカゴ: "US"
+  - ロンドン: "GB", パリ: "FR", ベルリン: "DE"
+
+## データベース操作時の重要事項
+- 「データを表示」「一覧を見る」→ execute_safe_query でSELECT文を実行
+- 「構造を確認」「スキーマを見る」→ get_table_schema を使用
+- データ表示は必ず execute_safe_query が必要です
+
 ## タスク依存関係の表現
 前のタスクの結果を使用する場合：
 - `"取得した都市名"` - IP情報から取得した都市
 - `"{{previous_result}}"` - 直前のタスク結果
 - `"{{task_1.city}}"` - 1番目のタスクのcityフィールド
 
+例：「商品データの一覧を表示」
+```json
+{{"tasks": [
+  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを取得して表示"}}
+]}}
+```
+
+例：「商品テーブルを詳しく調査してデータを表示」
+```json
+{{"tasks": [
+  {{"tool": "list_tables", "params": {{}}, "description": "テーブル一覧を確認"}},
+  {{"tool": "get_table_schema", "params": {{"table_name": "products"}}, "description": "商品テーブルの構造を確認"}},
+  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM products"}}, "description": "商品データを取得して表示"}}
+]}}
+```
+
+例：「東京と北京の天気を取得」
+```json
+{{"tasks": [
+  {{"tool": "get_weather", "params": {{"city": "Tokyo", "country_code": "JP"}}, "description": "東京の天気を取得"}},
+  {{"tool": "get_weather", "params": {{"city": "Beijing", "country_code": "CN"}}, "description": "北京の天気を取得"}}
+]}}
+```
+
 例：「IPから現在地を調べて天気を取得」
 ```json
 {{"tasks": [
   {{"tool": "get_ip_info", "params": {{}}, "description": "現在のIPアドレスの地理的情報を取得する"}},
-  {{"tool": "get_weather", "params": {{"city": "取得した都市名"}}, "description": "取得した都市の現在の天気を取得する"}}
+  {{"tool": "get_weather", "params": {{"city": "取得した都市名", "country_code": "JP"}}, "description": "取得した都市の現在の天気を取得する"}}
 ]}}
 ```
 
