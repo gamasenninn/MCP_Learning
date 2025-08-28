@@ -415,6 +415,7 @@ class RichDisplayManager:
         )
         
         self.console.print(panel)
+    
 
 
 # Rich が利用できない場合のフォールバック
