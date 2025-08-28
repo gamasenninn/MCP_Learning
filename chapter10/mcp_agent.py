@@ -771,6 +771,8 @@ class MCPAgent:
                     # 成功時はメトリクスを更新
                     if hasattr(self, 'execution_metrics'):
                         self.execution_metrics['task_generation_success'] += 1
+                        self.execution_metrics['total_task_lists'] += 1
+                        self.execution_metrics['average_task_count'] += len(task_list)
                         if attempt > 0:
                             self.execution_metrics['task_generation_retry_success'] += 1
                     
@@ -1203,7 +1205,15 @@ class MCPAgent:
             content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
             
-            return result.get("tasks", [])
+            tasks = result.get("tasks", [])
+            
+            # メトリクス更新
+            if tasks and hasattr(self, 'execution_metrics'):
+                self.execution_metrics['task_generation_success'] += 1
+                self.execution_metrics['total_task_lists'] += 1
+                self.execution_metrics['average_task_count'] += len(tasks)
+            
+            return tasks
             
         except Exception as e:
             self.logger.error(f"タスクリスト生成失敗: {e}")
@@ -1213,12 +1223,28 @@ class MCPAgent:
     async def close(self):
         """リソースの解放"""
         # セッションをアーカイブ
-        if self.state_manager.current_session:
-            await self.state_manager.archive_session()
+        if self.state_manager and self.state_manager.current_session:
+            try:
+                await asyncio.wait_for(
+                    self.state_manager.archive_session(),
+                    timeout=2.0
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
         
-        # 終了時にメトリクス表示
+        # 終了時にメトリクス表示（同期的）
         self._show_execution_metrics()
-        await self.connection_manager.close()
+        
+        # 接続のクリーンアップ
+        if self.connection_manager:
+            try:
+                await asyncio.wait_for(
+                    self.connection_manager.close(),
+                    timeout=3.0
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                # タイムアウトやキャンセルは静かに処理
+                pass
 
 
 async def main():
@@ -1258,7 +1284,11 @@ async def main():
     except KeyboardInterrupt:
         print("\n\n[中断] Ctrl+Cが押されました。")
     finally:
-        await agent.close()
+        try:
+            await agent.close()
+        except (asyncio.CancelledError, Exception):
+            # クリーンアップエラーは無視
+            pass
         print("\nMCP Agent を終了しました。")
 
 
