@@ -991,6 +991,11 @@ class MCPAgent:
             # 実行結果と共に履歴に保存
             self._add_to_history("assistant", final_response, serializable_results)
             
+            # basicモードの場合、結果表示ヘッダーを追加
+            if self.ui_mode == "basic":
+                result_with_header = f"\n{'='*50}\n🔍 実行結果\n{'='*50}\n{final_response}"
+                return result_with_header
+            
             return final_response
             
         except Exception as e:
