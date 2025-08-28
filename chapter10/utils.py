@@ -43,26 +43,24 @@ def safe_str(obj: Any, use_repr: bool = False) -> str:
 
 def setup_windows_encoding():
     """Windows環境でのUnicode対応設定"""
-    if sys.platform == "win32":
-        os.environ["PYTHONIOENCODING"] = "utf-8"
-        
-        # Windows環境でのUTF-8エンコーディング問題対策
-        # 標準出力をUTF-8でerrors='replace'に設定（絵文字エラー防止）
+    if sys.platform != "win32":
+        return
+    
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+    
+    # 標準出力/エラー出力の再設定を共通化
+    for stream_name in ['stdout', 'stderr']:
+        stream = getattr(sys, stream_name)
         try:
-            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+            stream.reconfigure(encoding='utf-8', errors='replace')
         except AttributeError:
-            # Python 3.7未満の場合のフォールバック
-            sys.stdout = io.TextIOWrapper(
-                sys.stdout.buffer,
+            # Python 3.7未満のフォールバック
+            wrapper = io.TextIOWrapper(
+                stream.buffer,
                 encoding='utf-8',
                 errors='replace'
             )
-            sys.stderr = io.TextIOWrapper(
-                sys.stderr.buffer,
-                encoding='utf-8', 
-                errors='replace'
-            )
+            setattr(sys, stream_name, wrapper)
 
 
 class Logger:
