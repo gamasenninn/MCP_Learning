@@ -204,3 +204,13 @@ class DisplayManager:
     def clear_line(self):
         """現在行をクリア（プログレス更新用）"""
         print("\r" + " " * 80 + "\r", end="", flush=True)
+    
+    def show_welcome(self, servers: int, tools: int, ui_mode: str):
+        """初期化完了後のウェルカムメッセージ"""
+        print("=" * 50)
+        print("         MCP Agent - 準備完了")
+        print("=" * 50)
+        print(f"  接続サーバー: {servers}個")
+        print(f"  利用可能ツール: {tools}個")
+        print(f"  UIモード: {ui_mode}")
+        print("=" * 50)

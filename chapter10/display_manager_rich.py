@@ -92,6 +92,9 @@ class RichDisplayManager:
     def show_analysis(self, message: str):
         """分析中のメッセージを表示"""
         self.console.print(f"[{self.colors['info']}][分析][/] {message}")
+    def show_task_list(self, tasks: List[Dict], current_index: int = -1):
+        """タスク一覧を表示（BasicDisplayManagerとの互換性のため）"""
+        self.show_checklist(tasks, current_index)
     
     def show_checklist(self, tasks: List[Dict], current: int = -1):
         """美しいチェックリスト表示"""
@@ -404,6 +407,26 @@ class RichDisplayManager:
     def clear_screen(self):
         """画面クリア"""
         self.console.clear()
+    
+    def show_welcome(self, servers: int, tools: int, ui_mode: str):
+        """初期化完了後のウェルカムメッセージ（Rich版）"""
+        from rich.panel import Panel
+        from rich.align import Align
+        
+        content = f"""[bold cyan]MCP Agent[/bold cyan] - [green]準備完了[/green]
+        
+[dim]接続サーバー:[/dim] [yellow]{servers}個[/yellow]
+[dim]利用可能ツール:[/dim] [yellow]{tools}個[/yellow]
+[dim]UIモード:[/dim] [magenta]{ui_mode}[/magenta]"""
+        
+        panel = Panel(
+            Align.center(content),
+            title="[bold blue]Model Context Protocol Agent[/bold blue]",
+            border_style="blue",
+            padding=(1, 2)
+        )
+        
+        self.console.print(panel)
 
 
 # Rich が利用できない場合のフォールバック

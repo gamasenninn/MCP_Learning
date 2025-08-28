@@ -1254,11 +1254,17 @@ class MCPAgent:
 
 async def main():
     """メイン実行関数"""
+    print("MCP Agent を起動しています...")
     agent = MCPAgent()
     await agent.initialize()
     
     try:
-        print("\nMCP Agent が準備完了しました！")
+        # 初期化完了後のウェルカムメッセージ
+        agent.display.show_welcome(
+            servers=len(agent.connection_manager.clients),
+            tools=len(agent.connection_manager.tools_info),
+            ui_mode=agent.ui_mode
+        )
         print("終了するには 'quit' または 'exit' を入力してください。")
         print("-" * 60)
         
