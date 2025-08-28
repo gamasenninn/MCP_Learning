@@ -27,6 +27,25 @@ class ErrorHandler:
     すべてのエラー処理を一元管理し、適切な対応を自動選択
     """
     
+    # エラーパターン定義
+    ERROR_PATTERNS = {
+        'PARAM_ERROR': {
+            'indicators': [
+                '404', 'not found', 'invalid parameter', '400', 'bad request',
+                'parameter', 'argument', 'invalid input', 'validation error',
+                'no such column', 'no such table', 'syntax error'
+            ],
+            'stat_key': 'param_errors'
+        },
+        'TRANSIENT_ERROR': {
+            'indicators': [
+                'timeout', 'connection', '503', '500', '502', '504',
+                'network', 'temporary', 'unavailable', 'retry'
+            ],
+            'stat_key': 'transient_errors'
+        }
+    }
+    
     def __init__(self, config: Dict, llm: Optional[AsyncOpenAI] = None, verbose: bool = True):
         """
         Args:
@@ -60,27 +79,13 @@ class ErrorHandler:
         """
         error_lower = error_msg.lower()
         
-        # パラメータエラー（修正が必要）
-        param_error_indicators = [
-            '404', 'not found', 'invalid parameter', '400', 'bad request',
-            'parameter', 'argument', 'invalid input', 'validation error',
-            'no such column', 'no such table', 'syntax error'
-        ]
+        # パターンマッチングによる分類
+        for error_type, config in self.ERROR_PATTERNS.items():
+            if any(indicator in error_lower for indicator in config['indicators']):
+                self.error_stats[config['stat_key']] += 1
+                return error_type
         
-        if any(indicator in error_lower for indicator in param_error_indicators):
-            self.error_stats["param_errors"] += 1
-            return "PARAM_ERROR"
-        
-        # 一時的エラー（リトライで解決可能）
-        transient_error_indicators = [
-            'timeout', 'connection', '503', '500', '502', '504',
-            'network', 'temporary', 'unavailable', 'retry'
-        ]
-        
-        if any(indicator in error_lower for indicator in transient_error_indicators):
-            self.error_stats["transient_errors"] += 1
-            return "TRANSIENT_ERROR"
-        
+        # いずれにも該当しない場合
         self.error_stats["unknown_errors"] += 1
         return "UNKNOWN"
     

@@ -68,6 +68,13 @@ def setup_windows_encoding():
 class Logger:
     """統一されたログ出力クラス"""
     
+    LEVELS = {
+        'debug': 'DEBUG',
+        'info': 'INFO',
+        'warning': 'WARNING',
+        'error': 'ERROR'
+    }
+    
     def __init__(self, verbose: bool = True):
         """
         Args:
@@ -75,23 +82,25 @@ class Logger:
         """
         self.verbose = verbose
     
+    def log(self, level: str, message: str):
+        """統一ログ出力メソッド"""
+        if self.verbose:
+            level_name = self.LEVELS.get(level, level.upper())
+            print(f"[{level_name}] {message}")
+    
     def debug(self, message: str):
         """デバッグメッセージ"""
-        if self.verbose:
-            print(f"[DEBUG] {message}")
+        self.log('debug', message)
     
     def info(self, message: str):
         """情報メッセージ"""
-        if self.verbose:
-            print(f"[INFO] {message}")
+        self.log('info', message)
     
     def warning(self, message: str):
         """警告メッセージ"""
-        if self.verbose:
-            print(f"[WARNING] {message}")
+        self.log('warning', message)
     
     def error(self, message: str):
         """エラーメッセージ"""
-        if self.verbose:
-            print(f"[ERROR] {message}")
+        self.log('error', message)
     
