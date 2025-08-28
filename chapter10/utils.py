@@ -95,22 +95,3 @@ class Logger:
         if self.verbose:
             print(f"[ERROR] {message}")
     
-    def analysis(self, message: str):
-        """分析メッセージ"""
-        if self.verbose:
-            print(f"[分析] {message}")
-    
-    def execution(self, message: str):
-        """実行メッセージ"""
-        if self.verbose:
-            print(f"[実行] {message}")
-    
-    def success(self, message: str):
-        """成功メッセージ"""
-        if self.verbose:
-            print(f"[成功] {message}")
-    
-    def config_info(self, message: str):
-        """設定メッセージ"""
-        if self.verbose:
-            print(f"[設定] {message}")

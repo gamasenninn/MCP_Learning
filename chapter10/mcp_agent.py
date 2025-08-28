@@ -150,7 +150,7 @@ class MCPAgent:
                 with open(agent_md_path, "r", encoding="utf-8") as f:
                     content = f.read()
                 if hasattr(self, 'logger'):
-                    self.logger.config_info(f"AGENT.mdを読み込みました ({len(content)}文字)")
+                    self.logger.info(f"AGENT.mdを読み込みました ({len(content)}文字)")
                 elif self.config.get("development", {}).get("verbose", False):
                     print(f"[設定] AGENT.mdを読み込みました ({len(content)}文字)")
                 return content

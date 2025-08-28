@@ -12,7 +12,6 @@ State Manager for MCP Agent V6
 
 import os
 import json
-import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
