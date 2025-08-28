@@ -47,40 +47,60 @@ class DisplayManager:
         """分析中のメッセージを表示"""
         print(f"[分析] {message}")
     
-    def show_task_list(self, tasks: List[Dict], current_index: int = -1):
+    def show_task_list(self, tasks: List[Dict], current_index: int = -1, 
+                       completed: List[int] = None, failed: List[int] = None,
+                       header: str = "[タスク一覧]"):
         """
-        チェックボックス付きタスクリストを表示
+        統一されたタスクリスト表示
         
         Args:
             tasks: タスクのリスト
             current_index: 現在実行中のタスクインデックス
+            completed: 完了タスクのインデックスリスト
+            failed: 失敗タスクのインデックスリスト
+            header: 表示するヘッダー
         """
         if not tasks:
             return
         
-        print("\n[タスク一覧]")
+        print(f"\n{header}")
         for i, task in enumerate(tasks):
-            status_icon = self._get_status_icon(i, current_index, task.get('status', 'pending'))
+            # ステータス判定を統一
+            status = self._get_task_status(i, current_index, completed, failed, 
+                                           task.get('status', 'pending'))
+            icon = self._get_status_icon(status)
             description = task.get('description', task.get('tool', 'Unknown'))
             
-            line = f"  {status_icon} {description}"
+            line = f"  {icon} {description}"
             
-            # 実行時間を表示
+            # タイミング表示
             if self.show_timing and task.get('duration'):
                 line += f" ({task['duration']:.1f}秒)"
+            elif status == 'running':
+                line += " [実行中...]"
             
             print(line)
     
-    def _get_status_icon(self, index: int, current_index: int, status: str) -> str:
-        """タスクの状態に応じたアイコンを返す（統一版）"""
-        if status in ['completed']:
-            return "[x]"  # 完了
-        elif status in ['failed']:
-            return "[!]"  # 失敗
-        elif status in ['running'] or index == current_index:
-            return "[>]"  # 実行中
-        else:
-            return "[ ]"  # 未実行
+    def _get_task_status(self, index: int, current_index: int, completed: List[int] = None, 
+                        failed: List[int] = None, default_status: str = 'pending') -> str:
+        """タスクステータスを統一的に判定"""
+        if failed and index in failed:
+            return 'failed'
+        if completed and index in completed:
+            return 'completed'
+        if index == current_index:
+            return 'running'
+        return default_status
+    
+    def _get_status_icon(self, status: str) -> str:
+        """ステータスアイコンのマッピング"""
+        icons = {
+            'completed': '[x]',
+            'failed': '[!]',
+            'running': '[>]',
+            'pending': '[ ]'
+        }
+        return icons.get(status, '[ ]')
     
     def show_checklist(self, tasks: List[Dict], current: int = -1):
         """チェックリスト形式でタスク一覧を表示（統一版）"""
@@ -93,31 +113,9 @@ class DisplayManager:
         
         # 前の表示をクリア（簡易版）
         print("\n" + "=" * 40)
-        print("[進行状況]")
         
-        for i, task in enumerate(tasks):
-            # ステータスを判定
-            if failed and i in failed:
-                status = 'failed'
-            elif completed and i in completed:
-                status = 'completed'
-            elif i == current:
-                status = 'running'
-            else:
-                status = 'pending'
-            
-            icon = self._get_status_icon(i, current, status)
-            description = task.get('description', task.get('tool', 'Unknown'))
-            
-            line = f"  {icon} {description}"
-            
-            # 実行時間を表示（完了した場合）
-            if self.show_timing and status == 'completed' and task.get('duration'):
-                line += f" ({task['duration']:.1f}秒)"
-            elif status == 'running':
-                line += " [実行中...]"
-            
-            print(line)
+        # 統一されたタスクリスト表示を使用
+        self.show_task_list(tasks, current, completed, failed, "[進行状況]")
     
     
     def show_step_start(self, step_num: int, total: int, description: str):
