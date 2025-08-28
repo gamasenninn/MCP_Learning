@@ -431,10 +431,9 @@ class MCPAgent:
         ]
         
         if task_list_for_display:
-            # V6用のシンプル表示
-            print("\n[タスク一覧]")
-            for i, task in enumerate(task_list_for_display):
-                print(f"  [ ] {task['description']}")
+            # タスク一覧の表示（DisplayManager使用）
+            tasks_for_display = [{"description": t['description']} for t in task_list_for_display]
+            self.display.show_task_list(tasks_for_display)
         
         # 実行結果を追跡
         completed = []
@@ -445,11 +444,14 @@ class MCPAgent:
         executable_tasks = [t for t in tasks if t.tool != "CLARIFICATION"]
         
         for i, task in enumerate(executable_tasks):
-            # V6用のシンプル進行状況表示
-            print(f"\n[実行中] {task.description}...")
+            # ステップ開始の表示（DisplayManager使用）
+            self.display.show_step_start(i+1, len(executable_tasks), task.description)
             
             # LLMベースでパラメータを解決
             resolved_params = await self._generate_params_with_llm(task, execution_context)
+            
+            # ツール呼び出し情報を表示
+            self.display.show_tool_call(task.tool, resolved_params)
             
             # タスク実行（リトライ機能付き）
             start_time = time.time()
@@ -466,7 +468,16 @@ class MCPAgent:
             # 成功時の処理
             await self.state_manager.move_task_to_completed(task.task_id, safe_result)
             completed.append(i)
-            print(f"[完了] {task.description}")
+            
+            # ステップ完了の表示（実行時間付き）
+            self.display.show_step_complete(task.description, duration, success=True)
+            
+            # チェックリストの更新表示
+            tasks_with_duration = [
+                {"description": t.description, "duration": duration if j in completed else None}
+                for j, t in enumerate(executable_tasks)
+            ]
+            self.display.update_checklist(tasks_with_duration, current=-1, completed=completed, failed=failed)
             
             execution_context.append({
                 "success": True,
@@ -807,7 +818,8 @@ class MCPAgent:
             params: 実行パラメータ
             description: タスクの説明（LLM判断時のコンテキスト）
         """
-        self.logger.info(f"[DEBUG] _execute_tool_with_retry が呼び出されました: tool={tool}")
+        if self.verbose:
+            self.logger.info(f"[DEBUG] _execute_tool_with_retry が呼び出されました: tool={tool}")
         max_retries = 3
         
         # 元のパラメータを保持（破壊的変更を避ける）
@@ -818,15 +830,18 @@ class MCPAgent:
             # 1. ツール実行（例外もキャッチして結果として扱う）
             try:
                 raw_result = await self.connection_manager.call_tool(tool, current_params)
-                self.logger.info(f"[DEBUG] ツール実行成功 attempt={attempt + 1}, result_type={type(raw_result)}")
+                if self.verbose:
+                    self.logger.info(f"[DEBUG] ツール実行成功 attempt={attempt + 1}, result_type={type(raw_result)}")
             except Exception as e:
                 # 例外も「結果」として扱い、LLM判断に回す
                 raw_result = f"ツールエラー: {e}"
-                self.logger.info(f"[DEBUG] ツール実行でエラー発生 attempt={attempt + 1}, error={type(e).__name__}")
+                if self.verbose:
+                    self.logger.info(f"[DEBUG] ツール実行でエラー発生 attempt={attempt + 1}, error={type(e).__name__}")
             
             # 2. LLMに結果を判断させる（成功・失敗問わず）
             try:
-                self.logger.info(f"[DEBUG] LLM判断を開始...")
+                if self.verbose:
+                    self.logger.info(f"[DEBUG] LLM判断を開始...")
                 judgment = await self._judge_and_process_result(
                     tool=tool,
                     current_params=current_params,
@@ -836,10 +851,12 @@ class MCPAgent:
                     max_retries=max_retries,
                     description=description
                 )
-                self.logger.info(f"[DEBUG] LLM判断完了")
+                if self.verbose:
+                    self.logger.info(f"[DEBUG] LLM判断完了")
                 
             except Exception as e:
-                self.logger.error(f"[DEBUG] LLM判断でエラー発生: {type(e).__name__}: {e}")
+                if self.verbose:
+                    self.logger.error(f"[DEBUG] LLM判断でエラー発生: {type(e).__name__}: {e}")
                 # LLM判断でエラーの場合は、結果をそのまま返す
                 return raw_result
             

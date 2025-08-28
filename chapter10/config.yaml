@@ -1,5 +1,4 @@
 # MCP Agent Configuration
-# Claude Code風対話型エージェントの設定
 
 # 表示設定
 display:
@@ -8,34 +7,11 @@ display:
   # rich: richライブラリを使った美しいUI（要pip install rich）
   ui_mode: "basic"
   
-  # タスクリストのスタイル: checkbox, simple, verbose
-  style: "checkbox"
-  
   # 実行時間を表示するかどうか
   show_timing: true
   
   # 思考過程を表示するかどうか（デバッグ用）
   show_thinking: true
-  
-  # プログレスバーを表示するかどうか
-  show_progress: true
-  
-  # 色付き表示（Windows環境では無効化）
-  use_colors: false
-  
-  # Rich UI特有の設定
-  rich_options:
-    # ライブ更新を使用するかどうか
-    enable_live_updates: true
-    
-    # 進捗バーを表示するかどうか
-    enable_progress_bar: true
-    
-    # パネル表示を使用するかどうか
-    enable_panels: true
-    
-    # マークダウン表示を使用するかどうか
-    enable_markdown: true
 
 # 実行設定
 execution:
@@ -45,17 +21,11 @@ execution:
   # タイムアウト時間（秒）
   timeout_seconds: 30
   
-  # ステップ間の待機時間（秒）
-  step_delay: 0.1
-  
   # フォールバック機能の有効/無効（段階的移行用）
   fallback_enabled: false
   
   # タスクリスト最大数（暴走防止）
   max_tasks: 10
-  
-  # 個別タスクのタイムアウト時間（秒）
-  task_timeout: 30
   
   # タスクリスト生成のリトライ戦略
   retry_strategy:
@@ -64,8 +34,6 @@ execution:
     initial_temperature: 0.1
     temperature_increment: 0.2
   
-  # パラメータ解決方式: placeholder (従来), llm_based (新方式), hybrid (段階的移行)
-  parameter_resolution_mode: "llm_based"
 
 # LLM設定
 llm:
@@ -91,27 +59,14 @@ error_handling:
   # パラメータエラー時の自動修正を試みる
   auto_correct_params: true
   
-  # エラー時の代替処理を提案
-  suggest_alternatives: true
   
   # ネットワークエラー時のリトライ間隔（秒）
   retry_interval: 1.0
 
-# ログ設定
-logging:
-  # ログレベル: DEBUG, INFO, WARNING, ERROR
-  level: "INFO"
-  
-  # ログファイルの出力
-  file_output: false
-  
-  # ログファイルのパス（file_outputがtrueの場合）
-  log_file: "mcp_agent.log"
-
 # 開発設定
 development:
   # 詳細なデバッグ情報を表示
-  verbose: true
+  verbose: false
   
   # API呼び出し回数を表示
   show_api_calls: true
@@ -125,8 +80,6 @@ result_display:
   # 結果解釈時の最大文字数（データベース結果等）
   max_result_length: 1000
   
-  # データベース結果の最大表示件数
-  max_db_records: 10
   
   # 結果が長い場合の省略表示
   show_truncated_info: true
