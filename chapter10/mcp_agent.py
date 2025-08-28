@@ -1179,14 +1179,6 @@ class MCPAgent:
             "verbose": self.verbose
         }
     
-    async def handle_user_response_to_clarification(self, response: str) -> str:
-        """
-        ユーザーのCLARIFICATION回答を処理
-        注意: このメソッドは非推奨です。_handle_pending_tasksを使用してください。
-        """
-        # 新しい処理フローにリダイレクト
-        return await self._handle_pending_tasks(response)
-    
     async def _generate_simple_task_list_v6(self, user_query: str) -> List[Dict[str, Any]]:
         """V6用のシンプルなタスクリスト生成"""
         try:

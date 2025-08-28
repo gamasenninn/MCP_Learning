@@ -388,18 +388,6 @@ class RichDisplayManager:
         """確認プロンプト"""
         return Confirm.ask(message)
     
-    def start_live_display(self, initial_content):
-        """ライブ更新開始"""
-        if not self.current_live:
-            self.current_live = Live(initial_content, console=self.console, refresh_per_second=10)
-            self.current_live.start()
-    
-    def stop_live_display(self):
-        """ライブ更新停止"""
-        if self.current_live:
-            self.current_live.stop()
-            self.current_live = None
-    
     def get_elapsed_time(self) -> float:
         """開始からの経過時間を取得"""
         return time.time() - self.start_time

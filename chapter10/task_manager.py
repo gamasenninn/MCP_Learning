@@ -10,9 +10,7 @@ Task Manager for MCP Agent V6
 - パラメータ置換とLLMベース解決
 """
 
-import re
 import json
-import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass

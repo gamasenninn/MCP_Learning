@@ -301,7 +301,3 @@ class ErrorHandler:
             "success_rate": round(success_rate, 1)
         }
     
-    def reset_statistics(self):
-        """エラー統計をリセット"""
-        for key in self.error_stats:
-            self.error_stats[key] = 0
