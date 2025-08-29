@@ -388,8 +388,8 @@ class MCPAgent:
     async def _execute_with_tasklist(self, user_query: str) -> str:
         """V6版タスクリスト実行メソッド - 状態管理対応"""
         
-        # V6用のシンプルなタスク生成
-        task_list_spec = await self._generate_simple_task_list_v6(user_query)
+        # V6用のリトライ機能付きタスク生成
+        task_list_spec = await self._generate_task_list_with_retry(user_query)
         
         if not task_list_spec:
             error_msg = (f"申し訳ありません。{user_query}の処理方法を決定できませんでした。\n"
@@ -495,24 +495,6 @@ class MCPAgent:
         # 結果をLLMで解釈
         return await self._interpret_planned_results(user_query, execution_context)
     
-    def _format_context_for_llm(self, execution_context: List[Dict]) -> str:
-        """実行コンテキストをLLM用に整形"""
-        if not execution_context:
-            return "（まだ実行結果なし）"
-        
-        formatted_context = []
-        for i, ctx in enumerate(execution_context, 1):
-            tool = ctx.get("tool", "不明")
-            result = safe_str(ctx.get("result", ""))[:200]  # 最初の200文字
-            description = ctx.get("description", f"{tool}を実行")
-            
-            formatted_context.append(f"ステップ{i}: {description}")
-            formatted_context.append(f"  ツール: {tool}")
-            formatted_context.append(f"  結果: {result}")
-            if len(safe_str(ctx.get("result", ""))) > 200:
-                formatted_context.append("  （結果が長いため省略...）")
-        
-        return "\n".join(formatted_context)
     
     async def _generate_params_with_llm(self, task: TaskState, execution_context: List[Dict]) -> Dict:
         """LLMが実行文脈を理解して直接パラメータを生成"""
@@ -681,62 +663,6 @@ class MCPAgent:
         else:
             self.logger.info(f"[LLM判断理由] リトライ不要 - {judgment.get('summary', '詳細不明')}")
     
-    async def _generate_adaptive_task_list(self, user_query: str, temperature: float = 0.1) -> List[Dict]:
-        """
-        クエリの複雑さに応じて適応的にタスクリストを生成
-        
-        Args:
-            user_query: ユーザークエリ
-            temperature: LLMの温度パラメータ
-            
-        Returns:
-            生成されたタスクリスト
-        """
-        recent_context = self._get_context_with_results()
-        tools_info = self.connection_manager.format_tools_for_llm()
-        
-        # カスタム指示の有無で複雑さを判定
-        custom_instructions = self.custom_instructions if self.custom_instructions.strip() else None
-        
-        # プロンプトテンプレートから取得
-        prompt = PromptTemplates.get_adaptive_task_list_prompt(
-            recent_context=recent_context,
-            user_query=user_query,
-            tools_info=tools_info,
-            custom_instructions=custom_instructions
-        )
-
-        try:
-            self.session_stats["total_api_calls"] += 1
-            
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=temperature
-            )
-            
-            content = safe_str(response.choices[0].message.content)
-            result = json.loads(content)
-            tasks = result.get("tasks", [])
-            
-            # タスク数に応じてログ出力
-            task_type_label = "詳細" if custom_instructions else "シンプル"
-            self.logger.info(f"{task_type_label}タスク: {len(tasks)}個のタスクを生成")
-            for i, task in enumerate(tasks, 1):
-                self.logger.debug(f"  [{i}] Tool: {task.get('tool')}, Params: {safe_str(task.get('params', {}))[:100]}...")
-                self.logger.debug(f"      Description: {task.get('description', 'N/A')}")
-            
-            # シンプルな場合は最大3タスクに制限
-            if not custom_instructions and len(tasks) > 3:
-                self.logger.info(f"タスク数制限: {len(tasks)} → 3（シンプルモード）")
-                tasks = tasks[:3]
-            
-            return tasks
-            
-        except Exception as e:
-            print(f"[エラー] 適応的タスクリスト生成失敗: {e}")
-            return []
     
     async def _generate_task_list_with_retry(self, user_query: str) -> List[Dict]:
         """
@@ -764,8 +690,8 @@ class MCPAgent:
                 else:
                     temperature = initial_temp
                 
-                # 統一された適応的タスクリスト生成を使用
-                task_list = await self._generate_adaptive_task_list(user_query, temperature)
+                # V6用のシンプルなタスクリスト生成を使用
+                task_list = await self._generate_simple_task_list_v6(user_query, temperature)
                 
                 if task_list:
                     # 成功時はメトリクスを更新
@@ -1085,23 +1011,6 @@ class MCPAgent:
         
         return "\n".join(lines) if lines else ""
     
-    def _summarize_results(self, results: List[Dict]) -> str:
-        """実行結果を要約して表示"""
-        summary_parts = []
-        for r in results:
-            tool = r.get('tool', 'Unknown')
-            success = r.get('success', False)
-            
-            if success and r.get('result'):
-                result_str = str(r['result'])
-                # 結果が長い場合は短縮
-                if len(result_str) > 100:
-                    result_str = result_str[:97] + "..."
-                summary_parts.append(f"{tool}: {result_str}")
-            else:
-                summary_parts.append(f"{tool}: {'成功' if success else '失敗'}")
-        
-        return " | ".join(summary_parts[:3])  # 最大3つの結果を表示
     
     def _add_to_history(self, role: str, message: str, execution_results: List[Dict] = None):
         """会話履歴に追加（実行結果も含む）"""
@@ -1156,19 +1065,6 @@ class MCPAgent:
         
         print("=" * 50)
     
-    def _show_session_statistics(self):
-        """セッション統計を表示"""
-        total_time = (datetime.now() - self.session_stats["start_time"]).total_seconds()
-        
-        self.display.show_result_summary(
-            total_tasks=self.session_stats["successful_tasks"] + self.session_stats["failed_tasks"],
-            successful=self.session_stats["successful_tasks"],
-            failed=self.session_stats["failed_tasks"],
-            total_duration=total_time
-        )
-        
-        if self.config["development"]["show_api_calls"]:
-            print(f"API呼び出し回数: {self.session_stats['total_api_calls']}")
     
     async def pause_session(self):
         """セッションを一時停止（ESCキー対応）"""
@@ -1212,7 +1108,7 @@ class MCPAgent:
             "verbose": self.verbose
         }
     
-    async def _generate_simple_task_list_v6(self, user_query: str) -> List[Dict[str, Any]]:
+    async def _generate_simple_task_list_v6(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:
         """V6用のシンプルなタスクリスト生成"""
         try:
             recent_context = self._get_context_with_results()
@@ -1229,7 +1125,7 @@ class MCPAgent:
                 model=self.config["llm"]["model"],
                 messages=[{"role": "system", "content": prompt}],
                 response_format={"type": "json_object"},
-                temperature=0.3
+                temperature=temperature
             )
             
             content = safe_str(response.choices[0].message.content)

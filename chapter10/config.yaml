@@ -66,7 +66,7 @@ error_handling:
 # 開発設定
 development:
   # 詳細なデバッグ情報を表示
-  verbose: false
+  verbose: true
   
   # API呼び出し回数を表示
   show_api_calls: true
