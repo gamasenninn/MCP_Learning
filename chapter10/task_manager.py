@@ -212,7 +212,7 @@ class TaskManager:
             suggestions = "\n".join([f"- {value}" for value in suggested_values])
             message_parts.append(f"\n**例:**\n{suggestions}")
         
-        message_parts.append(f"\n> 回答をお待ちしています。ESCキーで作業を中断することもできます。")
+        message_parts.append(f"\n> 回答をお待ちしています。（'skip'と入力すると、この質問をスキップできます）")
         
         return "\n".join(message_parts)
     

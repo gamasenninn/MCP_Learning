@@ -313,6 +313,25 @@ class MCPAgent:
         if self.task_manager.has_clarification_tasks():
             for task in pending_tasks:
                 if task.tool == "CLARIFICATION" and task.status == "pending":
+                    # skipコマンドのチェック
+                    if user_query.lower() == 'skip':
+                        # CLARIFICATIONタスクをスキップ
+                        await self.state_manager.move_task_to_completed(
+                            task.task_id, 
+                            {"user_response": "skipped", "skipped": True}
+                        )
+                        
+                        # 元のクエリをそのまま処理（情報不足のまま）
+                        original_query = task.params.get("user_query", "")
+                        await self.state_manager.set_user_query(original_query, "TOOL")
+                        
+                        # スキップしたことを通知
+                        print("\n質問をスキップしました。利用可能な情報で処理を続行します。")
+                        
+                        # 元のクエリで処理を試みる
+                        return await self._execute_with_tasklist(original_query)
+                    
+                    # 通常の応答処理
                     # CLARIFICATIONタスクを完了としてマーク
                     await self.state_manager.move_task_to_completed(task.task_id, {"user_response": user_query})
                     
