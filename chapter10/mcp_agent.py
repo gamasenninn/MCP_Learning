@@ -488,7 +488,8 @@ class MCPAgent:
                 "success": True,
                 "result": safe_result,
                 "duration": duration,
-                "task_description": task.description
+                "task_description": task.description,
+                "tool": task.tool
             })
         
         # V6用の最終状況表示
@@ -866,7 +867,7 @@ class MCPAgent:
         for r in results:
             result_data = {
                 "step": r.get("step", r.get("task_description", "タスク")),
-                "tool": r.get("tool", "不明"),
+                "tool": r.get("tool", r.get("task_tool", "不明")),
                 "success": r["success"],
                 "description": r.get("description", r.get("task_description", "実行完了"))
             }
