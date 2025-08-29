@@ -130,10 +130,18 @@ class MCPAgent:
         
         if self.verbose:
             self.display.show_banner()
-            if self.ui_mode == "rich":
+            if self._is_rich_ui_enabled():
                 self.logger.info("Rich UI mode enabled")
             else:
                 self.logger.info("Basic UI mode enabled")
+    
+    def _is_rich_ui_enabled(self) -> bool:
+        """Rich UIが有効かどうかを判定"""
+        return self.ui_mode == "rich"
+    
+    def _has_rich_method(self, method_name: str) -> bool:
+        """Rich UIの特定メソッドが利用可能か判定"""
+        return self._is_rich_ui_enabled() and hasattr(self.display, method_name)
     
     def _load_config(self, config_path: str) -> Dict:
         """設定ファイルを読み込み（必須）"""
@@ -953,7 +961,7 @@ class MCPAgent:
             final_response = response.choices[0].message.content
             
             # Rich UIの場合は美しく表示
-            if self.ui_mode == "rich" and hasattr(self.display, 'show_result_panel'):
+            if self._has_rich_method('show_result_panel'):
                 # JSONまたは長いテキストかどうか判定
                 if len(final_response) > 100 or final_response.strip().startswith('{'):
                     self.display.show_result_panel("実行結果", final_response, success=True)
@@ -1209,7 +1217,7 @@ async def main():
         
         while True:
             try:
-                if hasattr(agent.display, 'input_prompt') and agent.ui_mode == "rich":
+                if agent._has_rich_method('input_prompt'):
                     user_input = agent.display.input_prompt("Agent").strip()
                 else:
                     user_input = input("\nAgent> ").strip()
@@ -1226,7 +1234,7 @@ async def main():
             response = await agent.process_request(user_input)
             
             # Rich UIの場合はMarkdown整形表示
-            if agent.ui_mode == "rich" and hasattr(agent.display, 'show_markdown_result'):
+            if agent._has_rich_method('show_markdown_result'):
                 agent.display.show_markdown_result(response)
             else:
                 print(f"\n{response}")
