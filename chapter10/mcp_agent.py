@@ -321,15 +321,34 @@ class MCPAgent:
                             {"user_response": "skipped", "skipped": True}
                         )
                         
-                        # 元のクエリをそのまま処理（情報不足のまま）
+                        # 元のクエリと質問内容を取得
                         original_query = task.params.get("user_query", "")
-                        await self.state_manager.set_user_query(original_query, "TOOL")
+                        question = task.params.get("question", "")
+                        
+                        # 会話履歴を取得（文脈理解のため）
+                        context = self._get_context(max_items=5, include_results=True)
+                        
+                        # LLMが賢く処理するための拡張クエリを生成
+                        smart_query = f"""以下の状況で処理を実行してください：
+
+元のリクエスト: {original_query}
+確認したかった情報: {question}
+
+ユーザーが質問をスキップしました。
+会話履歴から推測できる値があればそれを使い、
+推測できない場合は適切なデフォルト値や一般的な例を使って、
+元のリクエストの意図に沿った処理を実行してください。
+
+会話履歴:
+{context}"""
+                        
+                        await self.state_manager.set_user_query(smart_query, "TOOL")
                         
                         # スキップしたことを通知
-                        print("\n質問をスキップしました。利用可能な情報で処理を続行します。")
+                        print("\n質問をスキップしました。会話履歴と文脈から最適な処理を実行します。")
                         
-                        # 元のクエリで処理を試みる
-                        return await self._execute_with_tasklist(original_query)
+                        # 拡張クエリで処理を実行
+                        return await self._execute_with_tasklist(smart_query)
                     
                     # 通常の応答処理
                     # CLARIFICATIONタスクを完了としてマーク
