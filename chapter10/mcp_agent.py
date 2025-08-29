@@ -53,10 +53,17 @@ class MCPAgent:
     """
     
     def __init__(self, config_path: str = "config.yaml"):
-        """初期化"""
+        """初期化（メイン処理）"""
         self.config = self._load_config(config_path)
         
-        # UI モードに基づいて適切なDisplayManagerを選択
+        self._initialize_display_manager()
+        self._initialize_external_services() 
+        self._initialize_data_structures()
+        self._initialize_custom_settings()
+        self._initialize_logging_and_banner()
+    
+    def _initialize_display_manager(self):
+        """UI表示管理の初期化"""
         ui_mode = self.config.get("display", {}).get("ui_mode", "basic")
         
         if ui_mode == "rich" and RICH_AVAILABLE:
@@ -73,28 +80,25 @@ class MCPAgent:
                 show_thinking=self.config["display"]["show_thinking"]
             )
             self.ui_mode = "basic"
-        
-        # LLMクライアント
+    
+    def _initialize_external_services(self):
+        """外部サービス（LLM、MCP等）の初期化"""
         self.llm = AsyncOpenAI()
-        
-        # MCP接続管理（V3から流用）
         self.connection_manager = ConnectionManager()
         
-        # エラー処理司令塔（V4新機能）
         self.error_handler = ErrorHandler(
             config=self.config,
             llm=self.llm,
             verbose=self.config.get("development", {}).get("verbose", True)
         )
         
-        # 状態管理システム（V6新機能）
         self.state_manager = StateManager()
         self.task_manager = TaskManager(self.state_manager, self.llm)
-        
-        # 会話履歴（V3から継承）
+    
+    def _initialize_data_structures(self):
+        """データ構造（履歴、統計、メトリクス）の初期化"""
         self.conversation_history: List[Dict] = []
         
-        # セッション統計
         self.session_stats = {
             "start_time": datetime.now(),
             "total_requests": 0,
@@ -103,7 +107,6 @@ class MCPAgent:
             "total_api_calls": 0
         }
         
-        # 実行メトリクス（新機能）
         self.execution_metrics = {
             "task_generation_success": 0,
             "task_generation_failures": 0,
@@ -115,11 +118,13 @@ class MCPAgent:
             "average_task_count": 0.0,
             "total_task_lists": 0
         }
-        
-        # AGENT.md読み込み（V3から継承）
+    
+    def _initialize_custom_settings(self):
+        """カスタム設定の読み込み"""
         self.custom_instructions = self._load_agent_md()
-        
-        # Loggerを初期化
+    
+    def _initialize_logging_and_banner(self):
+        """ログ設定とバナー表示"""
         self.verbose = self.config.get("development", {}).get("verbose", True)
         self.logger = Logger(verbose=self.verbose)
         
