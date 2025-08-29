@@ -692,7 +692,7 @@ class MCPAgent:
         Returns:
             生成されたタスクリスト
         """
-        recent_context = self._get_conversation_context_only()
+        recent_context = self._get_context_with_results()
         tools_info = self.connection_manager.format_tools_for_llm()
         
         # カスタム指示の有無で複雑さを判定
@@ -1052,6 +1052,39 @@ class MCPAgent:
         
         return "\n".join(lines)
     
+    def _get_context_with_results(self, max_items: int = 3) -> str:
+        """
+        会話履歴と実行結果を含む完全な文脈を取得
+        指示代名詞解決のために使用
+        """
+        # 会話履歴を取得
+        conversation_context = self.state_manager.get_conversation_context(max_items)
+        
+        # 直近の完了タスク結果を取得
+        completed_tasks = self.state_manager.get_completed_tasks()
+        recent_tasks = completed_tasks[-3:] if completed_tasks else []
+        
+        lines = []
+        
+        # 会話履歴を追加
+        if conversation_context:
+            lines.append("## 会話履歴:")
+            for entry in conversation_context:
+                role = "User" if entry['role'] == "user" else "Assistant"
+                msg = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
+                lines.append(f"{role}: {msg}")
+        
+        # 実行結果を追加
+        if recent_tasks:
+            lines.append("\n## 直近の実行結果:")
+            for i, task in enumerate(recent_tasks, 1):
+                if task.result:
+                    result_preview = str(task.result)[:300] + "..." if len(str(task.result)) > 300 else str(task.result)
+                    lines.append(f"{i}. {task.tool} - {task.description}")
+                    lines.append(f"   結果: {result_preview}")
+        
+        return "\n".join(lines) if lines else ""
+    
     def _summarize_results(self, results: List[Dict]) -> str:
         """実行結果を要約して表示"""
         summary_parts = []
@@ -1182,7 +1215,7 @@ class MCPAgent:
     async def _generate_simple_task_list_v6(self, user_query: str) -> List[Dict[str, Any]]:
         """V6用のシンプルなタスクリスト生成"""
         try:
-            recent_context = self._get_recent_context()
+            recent_context = self._get_context_with_results()
             tools_info = self.connection_manager.format_tools_for_llm()
             
             # シンプルなプロンプトを使用
