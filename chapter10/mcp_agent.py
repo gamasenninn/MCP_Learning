@@ -263,7 +263,7 @@ class MCPAgent:
     
     async def _determine_execution_type_v6(self, user_query: str) -> Dict:
         """V6版: CLARIFICATION対応の実行方式判定"""
-        recent_context = self._get_recent_context()
+        recent_context = self._get_context(include_results=False)
         
         # 利用可能なツール情報を取得
         tools_info = self.connection_manager.format_tools_for_llm()
@@ -854,7 +854,7 @@ class MCPAgent:
     async def _interpret_planned_results(self, user_query: str, results: List[Dict]) -> str:
         """計画実行の結果を解釈"""
         # 現在のリクエストのみに焦点を当て、前のタスク結果の混入を防ぐ
-        recent_context = self._get_conversation_context_only()
+        recent_context = self._get_context(include_results=False)
         
         # 結果をシリアライズ（V6対応）
         serializable_results = []
@@ -932,21 +932,28 @@ class MCPAgent:
             else:
                 return f"申し訳ありませんが、処理中にエラーが発生しました。"
     
-    def _get_recent_context(self, max_items: int = None) -> str:
-        """最近の会話文脈を取得（V6版: 状態管理から）"""
+    def _get_context(self, max_items: int = None, include_results: bool = True, recent_tasks_only: bool = True) -> str:
+        """統一されたコンテキスト取得メソッド
+        
+        Args:
+            max_items: 取得する会話数の上限
+            include_results: 実行結果を含めるかどうか
+            recent_tasks_only: Trueの場合は現在のクエリに関連するタスクのみ、Falseの場合は全履歴
+        """
         if max_items is None:
             max_items = self.config["conversation"]["context_limit"]
         
-        # 状態管理から会話履歴を取得
+        # 会話履歴を取得
         conversation_context = self.state_manager.get_conversation_context(max_items)
         
         if not conversation_context:
             return ""
         
         lines = []
+        
+        # 会話履歴（常にタイムスタンプ付き）
         for entry in conversation_context:
             role = "User" if entry['role'] == "user" else "Assistant"
-            # 長いメッセージは省略
             msg = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
             timestamp = entry.get('timestamp', '')
             if timestamp:
@@ -955,61 +962,28 @@ class MCPAgent:
             else:
                 lines.append(f"{role}: {msg}")
         
-        return "\n".join(lines)
-    
-    def _get_conversation_context_only(self, max_items: int = 3) -> str:
-        """
-        会話文脈のみを取得（実行結果を除外）
-        結果解釈時に前のタスク結果の混入を防ぐ
-        """
-        # V6では状態管理から会話履歴を取得
-        conversation_context = self.state_manager.get_conversation_context(max_items)
-        
-        if not conversation_context:
-            return ""
-        
-        lines = []
-        for entry in conversation_context:
-            role = "User" if entry['role'] == "user" else "Assistant"
-            # 長いメッセージは省略
-            msg = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
-            lines.append(f"{role}: {msg}")
-            # 実行結果は含めない（混入を防ぐため）
+        # 実行結果を含める場合
+        if include_results:
+            completed_tasks = self.state_manager.get_completed_tasks()
+            
+            if recent_tasks_only:
+                # 現在のクエリに関連するタスクのみを取得（元のシンプルロジック + 改良）
+                recent_tasks = completed_tasks[-3:] if completed_tasks else []
+            else:
+                recent_tasks = completed_tasks[-3:] if completed_tasks else []
+            
+            if recent_tasks:
+                lines.append("\n## 直近の実行結果:")
+                for i, task in enumerate(recent_tasks, 1):
+                    if task.result:
+                        result_preview = str(task.result)[:300] + "..." if len(str(task.result)) > 300 else str(task.result)
+                        lines.append(f"{i}. {task.tool} - {task.description}")
+                        lines.append(f"   結果: {result_preview}")
         
         return "\n".join(lines)
+
     
-    def _get_context_with_results(self, max_items: int = 3) -> str:
-        """
-        会話履歴と実行結果を含む完全な文脈を取得
-        指示代名詞解決のために使用
-        """
-        # 会話履歴を取得
-        conversation_context = self.state_manager.get_conversation_context(max_items)
-        
-        # 直近の完了タスク結果を取得
-        completed_tasks = self.state_manager.get_completed_tasks()
-        recent_tasks = completed_tasks[-3:] if completed_tasks else []
-        
-        lines = []
-        
-        # 会話履歴を追加
-        if conversation_context:
-            lines.append("## 会話履歴:")
-            for entry in conversation_context:
-                role = "User" if entry['role'] == "user" else "Assistant"
-                msg = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
-                lines.append(f"{role}: {msg}")
-        
-        # 実行結果を追加
-        if recent_tasks:
-            lines.append("\n## 直近の実行結果:")
-            for i, task in enumerate(recent_tasks, 1):
-                if task.result:
-                    result_preview = str(task.result)[:300] + "..." if len(str(task.result)) > 300 else str(task.result)
-                    lines.append(f"{i}. {task.tool} - {task.description}")
-                    lines.append(f"   結果: {result_preview}")
-        
-        return "\n".join(lines) if lines else ""
+    
     
     
     def _add_to_history(self, role: str, message: str, execution_results: List[Dict] = None):
@@ -1111,7 +1085,7 @@ class MCPAgent:
     async def _generate_simple_task_list_v6(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:
         """V6用のシンプルなタスクリスト生成"""
         try:
-            recent_context = self._get_context_with_results()
+            recent_context = self._get_context(include_results=False)
             tools_info = self.connection_manager.format_tools_for_llm()
             
             # シンプルなプロンプトを使用
