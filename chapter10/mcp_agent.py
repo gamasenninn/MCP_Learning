@@ -39,13 +39,8 @@ except ImportError:
 
 class MCPAgent:
     """
-    Claude Code風の対話型MCPエージェント
-    
-    過去バージョンから引き継いだ要素:
-    - AGENT.mdによるカスタマイズ
-    - 会話文脈の活用
-    - NO_TOOL判定
-    
+    Claude Code風の対話型MCPエージェント   
+   
     現在の主要機能:
     - 対話的逐次実行
     - ステップバイステップの可視化
