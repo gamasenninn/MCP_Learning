@@ -1,0 +1,1 @@
+"""Smoke tests for minimal environment verification"""

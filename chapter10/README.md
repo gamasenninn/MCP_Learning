@@ -230,15 +230,46 @@ development:
 
 ## 🚀 開発・テスト
 
-### テストの実行
+### テスト実行（pytest）
 
 ```bash
-# 基本テスト
-uv run python tests/test_state_manager.py
-uv run python tests/test_task_manager.py
+# テスト用依存関係のインストール
+uv add --dev pytest pytest-asyncio pytest-cov
 
-# 統合テスト
-uv run python tests/test_v6_integration.py
+# 全テスト実行
+python run_tests.py
+
+# カテゴリ別実行
+python run_tests.py --type unit          # 単体テスト
+python run_tests.py --type integration   # 統合テスト
+python run_tests.py --type functional    # 機能テスト
+
+# 高速実行（リファクタリング後のチェック）
+python run_tests.py quick
+
+# カバレッジ付き実行
+python run_tests.py --coverage
+
+# 並列実行（高速化）
+python run_tests.py --parallel 4
+```
+
+### テスト構成
+
+```
+tests_new/
+├── unit/                     # 単体テスト - 高速実行
+│   ├── test_state_manager.py
+│   ├── test_task_manager.py
+│   └── test_utils.py
+├── integration/              # 統合テスト - コンポーネント間
+│   ├── test_gpt5_support.py
+│   ├── test_parameter_resolution.py
+│   └── test_clarification.py
+├── functional/               # 機能テスト - エンドツーエンド
+│   ├── test_calculation_tasks.py
+│   └── test_database_operations.py
+└── conftest.py              # 共通設定・フィクスチャ
 ```
 
 ## 📄 ライセンス
