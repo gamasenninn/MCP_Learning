@@ -54,13 +54,13 @@ def main():
     
     # テストタイプ指定
     if args.type == "unit":
-        cmd.append("tests_new/unit")
+        cmd.append("tests/unit")
     elif args.type == "integration": 
-        cmd.append("tests_new/integration")
+        cmd.append("tests/integration")
     elif args.type == "functional":
-        cmd.append("tests_new/functional")
+        cmd.append("tests/functional")
     else:
-        cmd.append("tests_new")
+        cmd.append("tests")
     
     # オプション追加
     if args.coverage:
@@ -105,7 +105,7 @@ def quick_test():
     # 単体テストのみ高速実行
     cmd = [
         "uv", "run", "python", "-m", "pytest", 
-        "tests_new/unit",
+        "tests/unit",
         "-x",  # 最初の失敗で停止
         "--tb=short",  # 短いトレースバック
         "-v",   # テスト関数名を表示
@@ -162,7 +162,7 @@ def real_test():
     
     cmd = [
         "uv", "run", "python", "-m", "pytest",
-        "tests_new",
+        "tests",
         "-m", "real",
         "--real",  # カスタムオプション
         "-v",
@@ -182,7 +182,7 @@ def e2e_test():
     
     cmd = [
         "uv", "run", "python", "-m", "pytest",
-        "tests_new/e2e",
+        "tests/e2e",
         "--real",
         "-v",
         "--disable-warnings"

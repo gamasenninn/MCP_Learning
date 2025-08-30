@@ -74,5 +74,5 @@ def test_environment_variables():
         print(f"{var}: {value}")
     
     # 最低限必要な設定の確認
-    assert os.path.exists("tests_new"), "Test directory not found"
+    assert os.path.exists("tests"), "Test directory not found"
     assert os.path.exists("pytest.ini"), "pytest.ini not found"

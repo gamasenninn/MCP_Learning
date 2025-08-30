@@ -257,7 +257,7 @@ python run_tests.py --parallel 4
 ### テスト構成
 
 ```
-tests_new/
+tests/
 ├── unit/                     # 単体テスト - 高速実行
 │   ├── test_state_manager.py
 │   ├── test_task_manager.py
