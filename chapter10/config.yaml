@@ -37,7 +37,7 @@ execution:
 
 # LLM設定
 llm:
-  # 使用するモデル
+  # 使用するモデル (gpt-4o-mini, gpt-5-mini, gpt-5-nano, gpt-5)
   model: "gpt-4o-mini"
   
   # 温度パラメータ（創造性）
@@ -45,6 +45,13 @@ llm:
   
   # JSON形式での応答を強制
   force_json: true
+  
+  # GPT-5専用設定
+  # 推論レベル: minimal(高速), low(軽い推論), medium(標準推論), high(深い推論)
+  reasoning_effort: "minimal"
+  
+  # 最大完了トークン数（GPT-5で使用）
+  max_completion_tokens: 5000
 
 # 会話設定
 conversation:

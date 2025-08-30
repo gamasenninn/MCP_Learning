@@ -289,12 +289,12 @@ class MCPAgent:
         )
 
         try:
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
+            params = self._get_llm_params(
                 messages=[{"role": "system", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=0.1
             )
+            response = await self.llm.chat.completions.create(**params)
             
             content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
@@ -554,6 +554,10 @@ class MCPAgent:
         params = task.params
         description = task.description
         
+        # デバッグ: execution_contextの中身を表示
+        if self.verbose:
+            print(f"[DEBUG] execution_context: {json.dumps(execution_context, ensure_ascii=False, indent=2)}")
+        
         # 実行文脈から結果情報を抽出
         context_info = []
         if execution_context:
@@ -564,6 +568,11 @@ class MCPAgent:
                     context_info.append(f"タスク{i+1}: {task_desc} → 結果: {result_str}")
         
         context_str = "\n".join(context_info) if context_info else "前の実行結果はありません"
+        
+        # デバッグ: context_infoを表示
+        if self.verbose:
+            print(f"[DEBUG] context_info: {context_info}")
+            print(f"[DEBUG] context_str: {context_str}")
         
         prompt = f"""次のタスクを実行するためのパラメータを、実行履歴から適切に決定してください。
 
@@ -587,27 +596,62 @@ class MCPAgent:
 }}
 ```"""
 
+        # デバッグ: LLMに送るプロンプトを表示
+        if self.verbose:
+            print(f"[DEBUG] LLM Prompt:\n{prompt}")
+        
         try:
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
+            params_llm = self._get_llm_params(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
+            response = await self.llm.chat.completions.create(**params_llm)
             
             response_text = response.choices[0].message.content
+            
+            # デバッグ: LLMからのレスポンスを表示
+            if self.verbose:
+                print(f"[DEBUG] LLM Response: {response_text}")
             
             # JSONブロックを抽出
             import re
             json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
             if json_match:
-                result = json.loads(json_match.group(1))
-                resolved_params = result.get("resolved_params", params)
-                reasoning = result.get("reasoning", "")
-                
-                if self.verbose:
-                    print(f"[V6パラメータ解決] {reasoning}")
-                
-                return resolved_params
+                try:
+                    json_text = json_match.group(1).strip()
+                    if self.verbose:
+                        print(f"[DEBUG] JSON抽出結果: {json_text}")
+                    result = json.loads(json_text)
+                    resolved_params = result.get("resolved_params", params)
+                    reasoning = result.get("reasoning", "")
+                    
+                    # デバッグ: 解決されたパラメータを表示
+                    if self.verbose:
+                        print(f"[DEBUG] 元のパラメータ: {params}")
+                        print(f"[DEBUG] 解決されたパラメータ: {resolved_params}")
+                        print(f"[V6パラメータ解決] {reasoning}")
+                    
+                    return resolved_params
+                except json.JSONDecodeError as je:
+                    if self.verbose:
+                        print(f"[DEBUG] JSON解析エラー詳細: {je}")
+                        print(f"[DEBUG] 解析対象文字列: {repr(json_match.group(1))}")
+            else:
+                # ```json```ブロックがない場合、レスポンス全体がJSONの可能性
+                try:
+                    result = json.loads(response_text.strip())
+                    resolved_params = result.get("resolved_params", params)
+                    reasoning = result.get("reasoning", "")
+                    
+                    if self.verbose:
+                        print(f"[DEBUG] 直接JSON解析成功")
+                        print(f"[DEBUG] 元のパラメータ: {params}")
+                        print(f"[DEBUG] 解決されたパラメータ: {resolved_params}")
+                        print(f"[V6パラメータ解決] {reasoning}")
+                    
+                    return resolved_params
+                except json.JSONDecodeError:
+                    pass
             
             if self.verbose:
                 print(f"[V6パラメータ解決失敗] JSON解析エラー: {response_text[:100]}...")
@@ -679,15 +723,34 @@ class MCPAgent:
 - 日本語パラメータ → 英語に変換
 - セミコロン記法 → 複数行に分解"""
     
+    def _get_llm_params(self, **kwargs) -> Dict:
+        """モデルに応じたパラメータを生成"""
+        model = self.config["llm"]["model"]
+        params = {"model": model, **kwargs}
+        
+        if model.startswith("gpt-5"):
+            # GPT-5系の設定
+            params["max_completion_tokens"] = self.config["llm"].get("max_completion_tokens", 5000)
+            params["reasoning_effort"] = self.config["llm"].get("reasoning_effort", "minimal")
+            
+            # GPT-5系はtemperature=1のみサポート
+            if "temperature" in params:
+                params["temperature"] = 1.0
+        else:
+            # GPT-4系は既存設定を維持（max_tokensは指定しない）
+            pass
+        
+        return params
+    
     async def _call_llm_for_judgment(self, prompt: str) -> Dict:
         """LLMに判断を依頼してJSON結果を返す"""
         try:
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
+            params = self._get_llm_params(
                 messages=[{"role": "system", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=0.1
             )
+            response = await self.llm.chat.completions.create(**params)
             
             raw_response = response.choices[0].message.content
             self.logger.debug(f"[LLM生レスポンス] {safe_str(raw_response)[:500]}")
@@ -951,11 +1014,11 @@ class MCPAgent:
         )
 
         try:
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
+            params = self._get_llm_params(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
+            response = await self.llm.chat.completions.create(**params)
             
             # 最終応答を取得
             final_response = response.choices[0].message.content
@@ -1147,12 +1210,12 @@ class MCPAgent:
                 tools_info=tools_info
             )
             
-            response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
+            params = self._get_llm_params(
                 messages=[{"role": "system", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=temperature
             )
+            response = await self.llm.chat.completions.create(**params)
             
             content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
