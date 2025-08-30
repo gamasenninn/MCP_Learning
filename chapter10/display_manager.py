@@ -25,7 +25,7 @@ class DisplayManager:
         """
         Args:
             show_timing: 実行時間を表示するかどうか
-            show_thinking: 思考過程を表示するかどうか
+            show_thinking: 思考過程を表示するかどうか（show_tool_call内で使用）
         """
         self.show_timing = show_timing
         self.show_thinking = show_thinking
@@ -38,10 +38,6 @@ class DisplayManager:
         print(" Claude Code風の対話型エージェント")
         print("=" * 60)
     
-    def show_thinking(self, message: str):
-        """思考中のメッセージを表示"""
-        if self.show_thinking:
-            print(f"[思考] {message}")
     
     def show_analysis(self, message: str):
         """分析中のメッセージを表示"""
@@ -145,20 +141,6 @@ class DisplayManager:
         
         print(f"[{bar}] {percentage}% ({current}/{total})")
     
-    def show_result_summary(self, total_tasks: int, successful: int, failed: int, 
-                          total_duration: float):
-        """実行結果サマリーを表示"""
-        print("\n" + "=" * 50)
-        print("実行結果サマリー")
-        print("=" * 50)
-        print(f"実行タスク: {total_tasks}個")
-        print(f"成功: {successful}個 | 失敗: {failed}個")
-        
-        if self.show_timing:
-            print(f"総実行時間: {total_duration:.1f}秒")
-        
-        success_rate = (successful / total_tasks * 100) if total_tasks > 0 else 0
-        print(f"成功率: {success_rate:.0f}%")
     
     def show_error(self, message: str, suggestion: str = None):
         """エラーメッセージと対処法を表示"""
@@ -191,17 +173,11 @@ class DisplayManager:
                 param_str = param_str[:57] + "..."
             print(f"     パラメータ: {param_str}")
     
-    def show_waiting(self, message: str = "処理中"):
-        """待機中のメッセージ"""
-        print(f"  {message}...")
     
     def get_elapsed_time(self) -> float:
         """開始からの経過時間を取得"""
         return time.time() - self.start_time
     
-    def clear_line(self):
-        """現在行をクリア（プログレス更新用）"""
-        print("\r" + " " * 80 + "\r", end="", flush=True)
     
     def show_welcome(self, servers: int, tools: int, ui_mode: str):
         """初期化完了後のウェルカムメッセージ"""
