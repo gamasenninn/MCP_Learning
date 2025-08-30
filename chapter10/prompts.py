@@ -234,8 +234,8 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 ## カスタム指示
 {custom_section}
 
-## 注意: 以下は参考文脈のみ（現在の要求とは独立して扱う）
-最近の会話: {context_section}
+## 重要な文脈情報（指示代名詞解決に使用）
+最近の会話と実行結果: {context_section}
 
 {database_rules}
 
@@ -243,6 +243,13 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 計算の場合は演算順序を考慮
 - 天気等の単純API呼び出しは1つのタスクで完結
 - {max_tasks_note}
+
+## 指示代名詞の解決（重要）
+「この」「その」「前の」「直近の」「さっきの」「上記の」などが含まれる場合：
+1. 上記の文脈情報から具体的な値を特定して使用
+2. 例：「この盤面」→ 実行結果の具体的な配列をそのまま使用
+3. Pythonコード生成時は、具体的な値を直接コードに埋め込む
+4. あいまいな参照は避け、明確な値を設定
 
 ## タスク依存関係の表現
 前のタスクの結果を使用する場合は、自然な表現で記述してください：
@@ -300,6 +307,13 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 1-3個の必要最小限のタスクで構成
 - 計算の場合は演算順序を考慮
 - 天気等の単一API呼び出しは1つのタスクで完結
+
+## 文脈参照の解決（重要）
+ユーザーが「この」「その」「さっき」「前の」「生成した」「作成した」「上記の」などの参照を使用している場合：
+1. 上記の会話履歴と実行結果から具体的な値を特定して使用
+2. 前のタスクの結果を次のタスクで使用する場合、具体的な値として埋め込む
+3. 特にPythonコード内では、前の実行結果の実際のデータを直接コードに含める
+4. あいまいな参照（"それ"、"あれ"など）は避け、明確な値を設定
 
 ## get_weatherツール使用時の重要事項
 - 必ずcountry_codeパラメータを指定してください
@@ -364,70 +378,6 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 ]}}
 ```"""
 
-    @staticmethod  
-    def get_complex_task_list_prompt(
-        recent_context: Optional[str],
-        user_query: str,
-        tools_info: str,
-        custom_instructions: Optional[str]
-    ) -> str:
-        """
-        複雑なタスクリスト生成用のプロンプトを生成
-        
-        Args:
-            recent_context: 最近の会話文脈
-            user_query: ユーザーの要求
-            tools_info: 利用可能なツール情報
-            custom_instructions: カスタム指示
-            
-        Returns:
-            複雑なタスクリスト生成用プロンプト
-        """
-        context_section = recent_context if recent_context else "（新規会話）"
-        custom_section = custom_instructions if custom_instructions else "なし"
-        
-        return f"""ユーザーの要求を分析し、実行に必要なタスクリストを生成してください。
-
-## 最近の会話
-{context_section}
-
-## ユーザーの要求
-{user_query}
-
-## 利用可能なツール
-{tools_info}
-
-## カスタム指示
-{custom_section}
-
-## データベース操作の必須ルール（重要）
-データベース関連の要求は必ず以下の3ステップ：
-1. list_tables - テーブル一覧確認
-2. get_table_schema - 対象テーブルのスキーマ確認  
-3. execute_safe_query - 実際のクエリ実行
-
-## データベース表示ルール
-- 「一覧」「全件」「すべて」→ LIMIT 20（適度な件数）
-- 「少し」「いくつか」→ LIMIT 5
-- 「全部」「制限なし」→ LIMIT 50（最大）
-- 「1つ」「最高」「最安」→ LIMIT 1
-
-例：「データベースのテーブル一覧を表示して」
-→ [
-  {{"tool": "list_tables", "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブル構造を確認"}},
-  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを20件表示"}}
-]
-
-## 出力形式
-```json
-{{"tasks": [
-  {{"tool": "ツール名", "params": {{"param": "値"}}, "description": "何をするかの説明"}},
-  ...
-]}}
-```
-
-必要最小限のタスクで構成し、効率的な実行計画を作成してください。"""
 
     @staticmethod
     def get_result_interpretation_prompt(

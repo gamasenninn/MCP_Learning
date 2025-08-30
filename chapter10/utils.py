@@ -43,30 +43,35 @@ def safe_str(obj: Any, use_repr: bool = False) -> str:
 
 def setup_windows_encoding():
     """Windows環境でのUnicode対応設定"""
-    if sys.platform == "win32":
-        os.environ["PYTHONIOENCODING"] = "utf-8"
-        
-        # Windows環境でのUTF-8エンコーディング問題対策
-        # 標準出力をUTF-8でerrors='replace'に設定（絵文字エラー防止）
+    if sys.platform != "win32":
+        return
+    
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+    
+    # 標準出力/エラー出力の再設定を共通化
+    for stream_name in ['stdout', 'stderr']:
+        stream = getattr(sys, stream_name)
         try:
-            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+            stream.reconfigure(encoding='utf-8', errors='replace')
         except AttributeError:
-            # Python 3.7未満の場合のフォールバック
-            sys.stdout = io.TextIOWrapper(
-                sys.stdout.buffer,
+            # Python 3.7未満のフォールバック
+            wrapper = io.TextIOWrapper(
+                stream.buffer,
                 encoding='utf-8',
                 errors='replace'
             )
-            sys.stderr = io.TextIOWrapper(
-                sys.stderr.buffer,
-                encoding='utf-8', 
-                errors='replace'
-            )
+            setattr(sys, stream_name, wrapper)
 
 
 class Logger:
     """統一されたログ出力クラス"""
+    
+    LEVELS = {
+        'debug': 'DEBUG',
+        'info': 'INFO',
+        'warning': 'WARNING',
+        'error': 'ERROR'
+    }
     
     def __init__(self, verbose: bool = True):
         """
@@ -75,42 +80,25 @@ class Logger:
         """
         self.verbose = verbose
     
+    def log(self, level: str, message: str):
+        """統一ログ出力メソッド"""
+        if self.verbose:
+            level_name = self.LEVELS.get(level, level.upper())
+            print(f"[{level_name}] {message}")
+    
     def debug(self, message: str):
         """デバッグメッセージ"""
-        if self.verbose:
-            print(f"[DEBUG] {message}")
+        self.log('debug', message)
     
     def info(self, message: str):
         """情報メッセージ"""
-        if self.verbose:
-            print(f"[INFO] {message}")
+        self.log('info', message)
     
     def warning(self, message: str):
         """警告メッセージ"""
-        if self.verbose:
-            print(f"[WARNING] {message}")
+        self.log('warning', message)
     
     def error(self, message: str):
         """エラーメッセージ"""
-        if self.verbose:
-            print(f"[ERROR] {message}")
+        self.log('error', message)
     
-    def analysis(self, message: str):
-        """分析メッセージ"""
-        if self.verbose:
-            print(f"[分析] {message}")
-    
-    def execution(self, message: str):
-        """実行メッセージ"""
-        if self.verbose:
-            print(f"[実行] {message}")
-    
-    def success(self, message: str):
-        """成功メッセージ"""
-        if self.verbose:
-            print(f"[成功] {message}")
-    
-    def config_info(self, message: str):
-        """設定メッセージ"""
-        if self.verbose:
-            print(f"[設定] {message}")
