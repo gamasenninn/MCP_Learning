@@ -554,10 +554,6 @@ class MCPAgent:
         params = task.params
         description = task.description
         
-        # デバッグ: execution_contextの中身を表示
-        if self.verbose:
-            print(f"[DEBUG] execution_context: {json.dumps(execution_context, ensure_ascii=False, indent=2)}")
-        
         # 実行文脈から結果情報を抽出
         context_info = []
         if execution_context:
@@ -568,11 +564,6 @@ class MCPAgent:
                     context_info.append(f"タスク{i+1}: {task_desc} → 結果: {result_str}")
         
         context_str = "\n".join(context_info) if context_info else "前の実行結果はありません"
-        
-        # デバッグ: context_infoを表示
-        if self.verbose:
-            print(f"[DEBUG] context_info: {context_info}")
-            print(f"[DEBUG] context_str: {context_str}")
         
         prompt = f"""次のタスクを実行するためのパラメータを、実行履歴から適切に決定してください。
 
@@ -596,10 +587,6 @@ class MCPAgent:
 }}
 ```"""
 
-        # デバッグ: LLMに送るプロンプトを表示
-        if self.verbose:
-            print(f"[DEBUG] LLM Prompt:\n{prompt}")
-        
         try:
             params_llm = self._get_llm_params(
                 messages=[{"role": "user", "content": prompt}],
@@ -609,33 +596,22 @@ class MCPAgent:
             
             response_text = response.choices[0].message.content
             
-            # デバッグ: LLMからのレスポンスを表示
-            if self.verbose:
-                print(f"[DEBUG] LLM Response: {response_text}")
-            
             # JSONブロックを抽出
             import re
             json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
             if json_match:
                 try:
                     json_text = json_match.group(1).strip()
-                    if self.verbose:
-                        print(f"[DEBUG] JSON抽出結果: {json_text}")
                     result = json.loads(json_text)
                     resolved_params = result.get("resolved_params", params)
                     reasoning = result.get("reasoning", "")
                     
-                    # デバッグ: 解決されたパラメータを表示
                     if self.verbose:
-                        print(f"[DEBUG] 元のパラメータ: {params}")
-                        print(f"[DEBUG] 解決されたパラメータ: {resolved_params}")
                         print(f"[V6パラメータ解決] {reasoning}")
                     
                     return resolved_params
-                except json.JSONDecodeError as je:
-                    if self.verbose:
-                        print(f"[DEBUG] JSON解析エラー詳細: {je}")
-                        print(f"[DEBUG] 解析対象文字列: {repr(json_match.group(1))}")
+                except json.JSONDecodeError:
+                    pass
             else:
                 # ```json```ブロックがない場合、レスポンス全体がJSONの可能性
                 try:
@@ -644,9 +620,6 @@ class MCPAgent:
                     reasoning = result.get("reasoning", "")
                     
                     if self.verbose:
-                        print(f"[DEBUG] 直接JSON解析成功")
-                        print(f"[DEBUG] 元のパラメータ: {params}")
-                        print(f"[DEBUG] 解決されたパラメータ: {resolved_params}")
                         print(f"[V6パラメータ解決] {reasoning}")
                     
                     return resolved_params
