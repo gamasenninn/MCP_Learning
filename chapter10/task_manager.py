@@ -65,9 +65,15 @@ class TaskManager:
         for i, task_spec in enumerate(task_list):
             task_id = self._generate_task_id()
             
+            # paramsから誤って含まれた'description'を除去
+            raw_params = task_spec.get('params', {})
+            if 'description' in raw_params:
+                # LLMが誤ってparamsに含めた場合は削除
+                raw_params = {k: v for k, v in raw_params.items() if k != 'description'}
+            
             # パラメータの前処理（依存関係やCLARIFICATIONチェック）
             processed_params, clarification_needed = await self._process_task_parameters(
-                task_spec.get('params', {}), 
+                raw_params, 
                 user_query,
                 i
             )
@@ -277,6 +283,61 @@ class TaskManager:
                 return True
         
         return False
+    
+    def find_pending_clarification_task(self, pending_tasks: List[TaskState]) -> Optional[TaskState]:
+        """保留中のCLARIFICATIONタスクを検索"""
+        for task in pending_tasks:
+            if task.tool == "CLARIFICATION" and task.status == "pending":
+                return task
+        return None
+    
+    async def handle_clarification_skip(self, task: TaskState, conversation_manager, state_manager) -> str:
+        """CLARIFICATIONタスクのスキップ処理"""
+        await state_manager.move_task_to_completed(
+            task.task_id, 
+            {"user_response": "skipped", "skipped": True}
+        )
+        
+        smart_query = self._build_smart_query_for_skip(task, conversation_manager)
+        await state_manager.set_user_query(smart_query, "TOOL")
+        
+        return smart_query
+    
+    async def handle_clarification_response(self, task: TaskState, user_response: str, state_manager) -> str:
+        """CLARIFICATIONタスクへの通常応答処理"""
+        await state_manager.move_task_to_completed(
+            task.task_id, 
+            {"user_response": user_response}
+        )
+        
+        combined_query = self._combine_queries(task, user_response)
+        await state_manager.set_user_query(combined_query, "TOOL")
+        
+        return combined_query
+    
+    def _build_smart_query_for_skip(self, task: TaskState, conversation_manager) -> str:
+        """スキップ時のスマートクエリ生成"""
+        original_query = task.params.get("user_query", "")
+        question = task.params.get("question", "")
+        context = conversation_manager.get_recent_context(max_items=5, include_results=True)
+        
+        return f"""以下の状況で処理を実行してください：
+
+元のリクエスト: {original_query}
+確認したかった情報: {question}
+
+ユーザーが質問をスキップしました。
+会話履歴から推測できる値があればそれを使い、
+推測できない場合は適切なデフォルト値や一般的な例を使って、
+元のリクエストの意図に沿った処理を実行してください。
+
+会話履歴:
+{context}"""
+    
+    def _combine_queries(self, task: TaskState, user_response: str) -> str:
+        """クエリの組み合わせ"""
+        original_query = task.params.get("user_query", "")
+        return f"{original_query}。{user_response}。"
     
     def get_task_summary(self) -> Dict[str, Any]:
         """タスクの概要を取得"""

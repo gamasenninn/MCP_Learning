@@ -43,7 +43,7 @@ async def test_parameter_resolution_with_context(mcp_agent_mock):
     )
     
     # パラメータ解決実行
-    resolved_params = await agent._generate_params_with_llm(task, execution_context)
+    resolved_params = await agent.task_executor.resolve_parameters_with_llm(task, execution_context)
     
     # 「前の計算結果」が325に解決されることを確認
     assert resolved_params["a"] == 325
@@ -71,7 +71,7 @@ async def test_parameter_resolution_without_context(mcp_agent_mock):
         status="pending"
     )
     
-    resolved_params = await agent._generate_params_with_llm(task, [])
+    resolved_params = await agent.task_executor.resolve_parameters_with_llm(task, [])
     
     # 元のパラメータがそのまま返されることを確認
     assert resolved_params == original_params
@@ -95,7 +95,7 @@ async def test_parameter_resolution_json_parsing_fallback(mcp_agent_mock):
         status="pending"
     )
     
-    resolved_params = await agent._generate_params_with_llm(task, [])
+    resolved_params = await agent.task_executor.resolve_parameters_with_llm(task, [])
     
     # 直接JSON解析が動作することを確認
     assert resolved_params["a"] == 50
@@ -120,7 +120,7 @@ async def test_parameter_resolution_error_handling(mcp_agent_mock):
         status="pending"
     )
     
-    resolved_params = await agent._generate_params_with_llm(task, [])
+    resolved_params = await agent.task_executor.resolve_parameters_with_llm(task, [])
     
     # エラー時は元のパラメータが返されることを確認
     assert resolved_params == original_params
@@ -159,7 +159,7 @@ async def test_multiple_context_resolution(mcp_agent_mock):
         status="pending"
     )
     
-    resolved_params = await agent._generate_params_with_llm(task, execution_context)
+    resolved_params = await agent.task_executor.resolve_parameters_with_llm(task, execution_context)
     
     # 最新の結果が使用されることを確認
     assert resolved_params["a"] == 30

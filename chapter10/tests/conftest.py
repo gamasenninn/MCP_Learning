@@ -139,6 +139,13 @@ async def mcp_agent_mock(temp_dir, mock_config, mock_llm_client):
     agent.connection_manager.call_tool = AsyncMock(return_value="test_result")
     agent.connection_manager.format_tools_for_llm = MagicMock(return_value="tool_info")
     
+    # TaskExecutorのLLMもモックに置き換え
+    if hasattr(agent, 'task_executor'):
+        agent.task_executor.llm = mock_llm_client
+        # ErrorHandlerのLLMもモックに置き換え
+        if hasattr(agent.task_executor, 'error_handler') and agent.task_executor.error_handler:
+            agent.task_executor.error_handler.llm = mock_llm_client
+    
     return agent
 
 

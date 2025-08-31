@@ -13,11 +13,11 @@ Error Handler for MCP Agent
 import asyncio
 import json
 import re
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 from openai import AsyncOpenAI
 
 
-from utils import safe_str
+from utils import safe_str, Logger
 
 
 class ErrorHandler:
@@ -56,6 +56,8 @@ class ErrorHandler:
         self.config = config
         self.llm = llm
         self.verbose = verbose
+        self.logger = Logger(verbose=verbose)
+        self.current_user_query = ""
         
         # エラー統計
         self.error_stats = {
@@ -305,4 +307,166 @@ class ErrorHandler:
             **self.error_stats,
             "success_rate": round(success_rate, 1)
         }
+    
+    def build_judgment_prompt(
+        self, 
+        tool: str, 
+        current_params: Dict,
+        original_params: Dict,
+        result: Any,
+        attempt: int,
+        max_retries: int,
+        description: str,
+        current_user_query: str = None
+    ) -> str:
+        """LLM判断用プロンプトの生成"""
+        # 結果を安全な文字列に変換
+        result_str = safe_str(result)
+        current_params_str = safe_str(current_params)
+        original_params_str = safe_str(original_params)
+        
+        # ユーザークエリを決定
+        if current_user_query is None:
+            current_user_query = self.current_user_query or "（不明）"
+        
+        return f"""あなたはツール実行結果を判断するエキスパートです。以下の実行結果を分析してください。
+
+## 現在実行中のタスク
+タスク: {description or "タスクの説明なし"}
+
+## 実行情報
+- ツール名: {tool}
+- 現在のパラメータ: {current_params_str}
+- 元のパラメータ: {original_params_str}
+- 試行回数: {attempt}/{max_retries + 1}
+- ユーザーの要求: {current_user_query}
+
+## 実行結果
+{result_str}
+
+## 判断基準
+1. **成功判定**: 期待される結果が得られている
+2. **失敗判定**: エラーメッセージ、構文エラー、実行エラーが含まれている
+3. **リトライ判定**: パラメータを修正すれば成功する可能性がある
+
+## **重要**: パラメータ修正時のルール
+- **現在実行中のタスクの目的を必ず尊重してください**
+- 修正は元のパラメータ（{original_params_str}）を基準に行ってください
+- 他のタスクのパラメータに変更してはいけません
+- 例：都市名に国コードを追加（例："Tokyo" → "Tokyo, JP"）
+
+## 出力形式（JSON）
+{{
+    "is_success": boolean,
+    "needs_retry": boolean,
+    "error_reason": "エラーの理由（失敗時のみ）",
+    "corrected_params": {{元のパラメータを基準とした修正案}},
+    "processed_result": "ユーザー向けの整形済み結果",
+    "summary": "実行結果の要約"
+}}
+
+## 修正例
+- 構文エラー → コードを正しい構文に修正
+- 都市名エラー → 国コード付きに修正
+- 日本語パラメータ → 英語に変換
+- セミコロン記法 → 複数行に分解"""
+    
+    def _get_llm_params(self, **kwargs) -> Dict:
+        """モデルに応じたパラメータを生成"""
+        model = self.config["llm"]["model"]
+        params = {"model": model, **kwargs}
+        
+        if model.startswith("gpt-5"):
+            # GPT-5系の設定
+            params["max_completion_tokens"] = self.config["llm"].get("max_completion_tokens", 5000)
+            params["reasoning_effort"] = self.config["llm"].get("reasoning_effort", "minimal")
+            
+            # GPT-5系はtemperature=1のみサポート
+            if "temperature" in params:
+                params["temperature"] = 1.0
+        
+        return params
+    
+    async def call_llm_for_judgment(self, prompt: str) -> Dict:
+        """LLMに判断を依頼してJSON結果を返す"""
+        try:
+            params = self._get_llm_params(
+                messages=[{"role": "system", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.1
+            )
+            response = await self.llm.chat.completions.create(**params)
+            
+            raw_response = response.choices[0].message.content
+            self.logger.debug(f"[LLM生レスポンス] {safe_str(raw_response)[:500]}")
+            
+            return json.loads(raw_response)
+            
+        except Exception as e:
+            self.logger.error(f"[LLM判断エラー] {e}")
+            # フォールバック: 成功として扱う
+            return {
+                "is_success": True,
+                "needs_retry": False,
+                "processed_result": "LLM判断に失敗しました。結果をそのまま表示します。",
+                "summary": "LLM判断エラーによるフォールバック"
+            }
+    
+    def log_judgment_result(self, judgment: Dict):
+        """判断結果の詳細ログ出力"""
+        self.logger.info(f"[LLM判断] 成功: {judgment.get('is_success')}, リトライ必要: {judgment.get('needs_retry')}")
+        
+        if judgment.get('needs_retry'):
+            self.logger.info(f"[LLM理由] {judgment.get('error_reason', '不明')}")
+            if judgment.get('corrected_params'):
+                self.logger.info(f"[LLM修正案] {safe_str(judgment.get('corrected_params'))[:200]}")
+        else:
+            self.logger.info(f"[LLM判断理由] リトライ不要 - {judgment.get('summary', '詳細不明')}")
+    
+    async def judge_and_process_result(
+        self, 
+        tool: str, 
+        current_params: Dict,
+        original_params: Dict, 
+        result: Any,
+        attempt: int = 1,
+        max_retries: int = 3,
+        description: str = "",
+        current_user_query: str = "（不明）"
+    ) -> Dict[str, Any]:
+        """
+        LLMによるツール実行結果の判断と処理
+        
+        Args:
+            tool: ツール名
+            current_params: 現在実行したパラメータ
+            original_params: 元のパラメータ（修正の基準）
+            result: ツール実行結果
+            attempt: 現在の試行回数
+            max_retries: 最大リトライ回数
+            description: 現在実行中のタスクの説明
+            current_user_query: ユーザーの要求
+            
+        Returns:
+            判断結果辞書
+        """
+        # プロンプト生成
+        prompt = self.build_judgment_prompt(
+            tool=tool,
+            current_params=current_params,
+            original_params=original_params,
+            result=result,
+            attempt=attempt,
+            max_retries=max_retries,
+            description=description,
+            current_user_query=current_user_query
+        )
+        
+        # LLM呼び出し
+        judgment = await self.call_llm_for_judgment(prompt)
+        
+        # ログ出力
+        self.log_judgment_result(judgment)
+        
+        return judgment
     

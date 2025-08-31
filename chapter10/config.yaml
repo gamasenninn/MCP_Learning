@@ -78,8 +78,6 @@ development:
   # API呼び出し回数を表示
   show_api_calls: true
   
-  # 実行統計を表示
-  show_statistics: true
 
 
 # 結果表示設定
