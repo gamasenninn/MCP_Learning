@@ -3,11 +3,6 @@
 MCP Agent - Interactive Dialogue Engine
 Claude Code風の対話型エージェント
 
-主な特徴：
-- 対話的逐次実行（依存関係の自動解決）
-- チェックボックス付きタスク表示
-- リアルタイムプログレス
-- 過去バージョンの知見を活かした設計
 """
 
 import os
@@ -51,15 +46,41 @@ class MCPAgent:
         """初期化（メイン処理）"""
         self.config = self._load_config(config_path)
         
-        self._initialize_display_manager()
-        self._initialize_external_services() 
-        self._initialize_data_structures()
-        self._initialize_custom_settings()
-        self._initialize_logging_and_banner()
+        self._initialize_core_components()
+        self._initialize_ui_and_logging()
         self._initialize_task_executor()  # 最後に初期化（他の全てが必要なため）
     
-    def _initialize_display_manager(self):
-        """UI表示管理の初期化"""
+    def _initialize_core_components(self):
+        """コアコンポーネント（外部サービス、設定、データ構造）の初期化"""
+        # 外部サービス
+        self.llm = AsyncOpenAI()
+        self.connection_manager = ConnectionManager()
+        
+        self.error_handler = ErrorHandler(
+            config=self.config,
+            llm=self.llm,
+            verbose=self.config.get("development", {}).get("verbose", True)
+        )
+        
+        self.state_manager = StateManager()
+        self.task_manager = TaskManager(self.state_manager, self.llm)
+        self.conversation_manager = ConversationManager(self.state_manager, self.config)
+        
+        # データ構造
+        self.session_stats = {
+            "start_time": datetime.now(),
+            "total_requests": 0,
+            "successful_tasks": 0,
+            "failed_tasks": 0,
+            "total_api_calls": 0
+        }
+        
+        # カスタム設定
+        self.custom_instructions = self._load_agent_md()
+    
+    def _initialize_ui_and_logging(self):
+        """UI表示とログ設定の初期化"""
+        # UI表示管理
         ui_mode = self.config.get("display", {}).get("ui_mode", "basic")
         
         if ui_mode == "rich" and RICH_AVAILABLE:
@@ -76,40 +97,8 @@ class MCPAgent:
                 show_thinking=self.config["display"]["show_thinking"]
             )
             self.ui_mode = "basic"
-    
-    def _initialize_external_services(self):
-        """外部サービス（LLM、MCP等）の初期化"""
-        self.llm = AsyncOpenAI()
-        self.connection_manager = ConnectionManager()
         
-        self.error_handler = ErrorHandler(
-            config=self.config,
-            llm=self.llm,
-            verbose=self.config.get("development", {}).get("verbose", True)
-        )
-        
-        self.state_manager = StateManager()
-        self.task_manager = TaskManager(self.state_manager, self.llm)
-        self.conversation_manager = ConversationManager(self.state_manager, self.config)
-    
-    def _initialize_data_structures(self):
-        """データ構造（履歴、統計、メトリクス）の初期化"""
-        
-        self.session_stats = {
-            "start_time": datetime.now(),
-            "total_requests": 0,
-            "successful_tasks": 0,
-            "failed_tasks": 0,
-            "total_api_calls": 0
-        }
-        
-    
-    def _initialize_custom_settings(self):
-        """カスタム設定の読み込み"""
-        self.custom_instructions = self._load_agent_md()
-    
-    def _initialize_logging_and_banner(self):
-        """ログ設定とバナー表示"""
+        # ログ設定とバナー表示
         self.verbose = self.config.get("development", {}).get("verbose", True)
         self.logger = Logger(verbose=self.verbose)
         
@@ -121,7 +110,7 @@ class MCPAgent:
                 self.logger.info("Basic UI mode enabled")
     
     def _initialize_task_executor(self):
-        """TaskExecutorの初期化（他の全てのコンポーネントが必要）"""
+        """TaskExecutorの初期化（全コンポーネント初期化後に実行）"""
         self.task_executor = TaskExecutor(
             task_manager=self.task_manager,
             connection_manager=self.connection_manager,
@@ -182,7 +171,7 @@ class MCPAgent:
         # MCP接続管理を初期化（V3から継承）
         await self.connection_manager.initialize()
         
-        # セッション状態を初期化（V6新機能）
+        # セッション状態を初期化
         actual_session_id = await self.state_manager.initialize_session(session_id)
         
         if self.verbose:
@@ -235,7 +224,7 @@ class MCPAgent:
     
     async def _execute_interactive_dialogue(self, user_query: str) -> str:
         """
-        V6統合実行エンジン - 状態管理とCLARIFICATION対応
+統合実行エンジン - 状態管理とCLARIFICATION対応
         
         新機能:
         - 状態の永続化
@@ -255,7 +244,7 @@ class MCPAgent:
         self.display.show_analysis("リクエストを分析中...")
         
         # まず処理方式を判定（CLARIFICATION対応版）
-        execution_result = await self._determine_execution_type_v6(user_query)
+        execution_result = await self._determine_execution_type(user_query)
         execution_type = execution_result.get("type", "SIMPLE")
         
         # 状態に実行タイプを記録
@@ -273,15 +262,15 @@ class MCPAgent:
             # SIMPLE/COMPLEX統合：全てのツール実行要求を統一メソッドで処理
             return await self._execute_with_tasklist(user_query)
     
-    async def _determine_execution_type_v6(self, user_query: str) -> Dict:
-        """V6版: CLARIFICATION対応の実行方式判定"""
+    async def _determine_execution_type(self, user_query: str) -> Dict:
+        """CLARIFICATION対応の実行方式判定"""
         recent_context = self.conversation_manager.get_recent_context(include_results=False)
         
         # 利用可能なツール情報を取得
         tools_info = self.connection_manager.format_tools_for_llm()
         
-        # プロンプトテンプレートから取得（V6対応版）
-        prompt = PromptTemplates.get_execution_type_determination_prompt_v6(
+        # プロンプトテンプレートから取得
+        prompt = PromptTemplates.get_execution_type_determination_prompt(
             recent_context=recent_context,
             user_query=user_query,
             tools_info=tools_info
@@ -298,7 +287,7 @@ class MCPAgent:
             content = safe_str(response.choices[0].message.content)
             result = json.loads(content)
             
-            # V6版では CLARIFICATION も含む
+            # CLARIFICATION も含む
             # SIMPLE/COMPLEX統合のため、NO_TOOL, CLARIFICATION以外は全てTOOLに統一
             if result.get('type') in ['SIMPLE', 'COMPLEX']:
                 result['type'] = 'TOOL'
@@ -378,16 +367,13 @@ class MCPAgent:
             return "実行可能なタスクがありません。"
         
         # タスクを実行
-        return await self._execute_single_task_v6(next_task)
+        return await self.task_executor.execute_single_task(next_task)
     
-    async def _execute_single_task_v6(self, task: TaskState) -> str:
-        """単一タスクのV6実行 - TaskExecutorに委譲"""
-        return await self.task_executor.execute_single_task(task)
     
     async def _execute_with_tasklist(self, user_query: str) -> str:
-        """V6版タスクリスト実行メソッド - 状態管理対応"""
+        """タスクリスト実行メソッド - 状態管理対応"""
         
-        # V6用のリトライ機能付きタスク生成
+        # リトライ機能付きタスク生成
         task_list_spec = await self._generate_task_list_with_retry(user_query)
         
         if not task_list_spec:
@@ -403,15 +389,9 @@ class MCPAgent:
             await self.state_manager.add_pending_task(task)
         
         # CLARIFICATIONタスクが生成された場合は優先処理
-        if self.task_manager.has_clarification_tasks():
-            clarification_task = None
-            for task in tasks:
-                if task.tool == "CLARIFICATION":
-                    clarification_task = task
-                    break
-            
-            if clarification_task:
-                return await self._handle_clarification_task(clarification_task)
+        clarification_task = next((task for task in tasks if task.tool == "CLARIFICATION"), None)
+        if clarification_task:
+            return await self._handle_clarification_task(clarification_task)
         
         # 通常のタスクリスト実行
         execution_context = await self.task_executor.execute_task_sequence(tasks, user_query)
@@ -462,8 +442,8 @@ class MCPAgent:
                 else:
                     temperature = initial_temp
                 
-                # V6用のシンプルなタスクリスト生成を使用
-                task_list = await self._generate_simple_task_list_v6(user_query, temperature)
+                # シンプルなタスクリスト生成を使用
+                task_list = await self._generate_simple_task_list(user_query, temperature)
                 
                 if task_list:
                     
@@ -486,8 +466,7 @@ class MCPAgent:
             except Exception as e:
                 last_error = f"試行{attempt + 1}: {str(e)}"
                 self.logger.info(f"[リトライ] {last_error}")
-            
-        
+                    
         # 全ての試行が失敗
         self.logger.error(f"[失敗] タスクリスト生成 - {max_retries}回の試行全てが失敗")
         self.logger.error(f"最後のエラー: {last_error}")
@@ -500,7 +479,7 @@ class MCPAgent:
         # 現在のリクエストのみに焦点を当て、前のタスク結果の混入を防ぐ
         recent_context = self.conversation_manager.get_recent_context(include_results=False)
         
-        # 結果をシリアライズ（V6対応）
+        # 結果をシリアライズ
         serializable_results = []
         for r in results:
             result_data = {
@@ -576,9 +555,6 @@ class MCPAgent:
                 return f"実行完了しました。{len(successful_results)}個のタスクが成功しました。"
             else:
                 return f"申し訳ありませんが、処理中にエラーが発生しました。"
-       
-    
-    
     
     async def pause_session(self):
         """セッションを一時停止（ESCキー対応）"""
@@ -622,8 +598,8 @@ class MCPAgent:
             "verbose": self.verbose
         }
     
-    async def _generate_simple_task_list_v6(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:
-        """V6用のシンプルなタスクリスト生成"""
+    async def _generate_simple_task_list(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:
+        """シンプルなタスクリスト生成"""
         try:
             recent_context = self.conversation_manager.get_recent_context(include_results=False)
             tools_info = self.connection_manager.format_tools_for_llm()
@@ -647,7 +623,6 @@ class MCPAgent:
             
             tasks = result.get("tasks", [])
             
-            
             return tasks
             
         except Exception as e:
@@ -666,8 +641,7 @@ class MCPAgent:
                 )
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
-        
-        
+                
         # 接続のクリーンアップ
         if self.connection_manager:
             try:
@@ -678,7 +652,6 @@ class MCPAgent:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 # タイムアウトやキャンセルは静かに処理
                 pass
-
 
 async def main():
     """メイン実行関数"""
@@ -729,7 +702,6 @@ async def main():
             # クリーンアップエラーは無視
             pass
         print("\nMCP Agent を終了しました。")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

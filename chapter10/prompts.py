@@ -17,6 +17,7 @@ class PromptTemplates:
     完成されたプロンプト文字列を返す
     """
     
+    
     @staticmethod
     def get_execution_type_determination_prompt(
         recent_context: Optional[str],
@@ -24,69 +25,7 @@ class PromptTemplates:
         tools_info: Optional[str] = None
     ) -> str:
         """
-        実行方式判定用のプロンプトを生成
-        
-        Args:
-            recent_context: 最近の会話文脈
-            user_query: ユーザーの要求
-            tools_info: 利用可能なツール情報
-            
-        Returns:
-            実行方式判定用プロンプト
-        """
-        context_section = recent_context if recent_context else "（新規会話）"
-        tools_section = tools_info if tools_info else "（ツール情報の取得に失敗しました）"
-        
-        return f"""ユーザーの要求を分析し、適切な実行方式を判定してください。
-
-## 最近の会話
-{context_section}
-
-## ユーザーの要求
-{user_query}
-
-## 利用可能なツール
-{tools_section}
-
-## 判定基準
-- **NO_TOOL**: 日常会話（挨拶・雑談・自己紹介・感想・お礼等のみ）
-- **SIMPLE**: 1-2ステップの単純なタスク（計算、単一API呼び出し等）
-- **COMPLEX**: データベース操作、多段階処理等
-
-## 重要な注意
-- 上記のツール一覧を確認し、実行可能なタスクかどうか判定してください
-- 「天気」「温度」「気象」→外部APIツールが必要
-- 「商品」「データベース」「一覧」→データベースツールが必要
-- 「ディレクトリ」「ファイル」「フォルダ」「読む」「書く」「保存」→ファイルシステムツールが必要
-- 利用可能なツールで実行可能な場合はNO_TOOLではありません！
-
-## 出力形式
-NO_TOOLの場合（会話履歴から回答する場合も含む）：
-- 会話履歴を参照して、正確に情報を取得してください
-- 「俺の名前は？」→ 履歴のUser発言から名前を取得
-- 「君の名前は？」→ 履歴でUserが設定したアシスタントの名前を取得
-- **重要**: 会話履歴で設定された名前や関係性を一貫して維持し、ユーザーに寄り添った自然な応答をしてください
-- ユーザーが設定したアシスタントの名前（例：ガーコ）は必ず記憶し、「アシスタント」という機械的な名前は絶対に使わない
-- 「君の名前を決めよう。ガーコちゃんってどう？」のような発言があったら、それ以降は「私の名前はガーコです」と答える
-- 親しみやすく、会話の文脈に合った応答を心がける
-- 会話履歴を最初から最後まで読み、名前の設定を見逃さないこと
-```json
-{{"type": "NO_TOOL", "response": "**Markdown形式**で適切な応答メッセージ", "reason": "判定理由"}}
-```
-
-その他の場合：
-```json
-{{"type": "SIMPLE|COMPLEX", "reason": "判定理由"}}
-```"""
-    
-    @staticmethod
-    def get_execution_type_determination_prompt_v6(
-        recent_context: Optional[str],
-        user_query: str,
-        tools_info: Optional[str] = None
-    ) -> str:
-        """
-        V6版: CLARIFICATION対応の実行方式判定用プロンプトを生成
+        CLARIFICATION対応の実行方式判定用プロンプトを生成
         
         Args:
             recent_context: 最近の会話文脈

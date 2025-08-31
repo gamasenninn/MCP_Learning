@@ -165,6 +165,8 @@ class StateManager:
         
         with open(self.session_file, 'w', encoding='utf-8') as f:
             json.dump(session_dict, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
     
     async def add_conversation_entry(self, role: str, content: str):
         """会話エントリを追加"""
@@ -188,6 +190,8 @@ class StateManager:
         
         with open(self.conversation_file, 'a', encoding='utf-8') as f:
             f.write(log_entry)
+            f.flush()
+            os.fsync(f.fileno())
     
     async def set_user_query(self, query: str, execution_type: str):
         """ユーザークエリと実行タイプを設定"""
@@ -272,12 +276,16 @@ class StateManager:
         with open(pending_file, 'w', encoding='utf-8') as f:
             json.dump([asdict(task) for task in self.current_session.pending_tasks], 
                      f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         
         # completed.json
         completed_file = self.tasks_dir / "completed.json"
         with open(completed_file, 'w', encoding='utf-8') as f:
             json.dump([asdict(task) for task in self.current_session.completed_tasks], 
                      f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         
         # current.txt (現在の状況を人間可読形式で)
         current_file = self.tasks_dir / "current.txt"
@@ -293,6 +301,8 @@ class StateManager:
                     f.write(f"{i}. [{task.status}] {task.description}\n")
                     f.write(f"   ツール: {task.tool}\n")
                     f.write(f"   作成: {task.created_at}\n\n")
+            f.flush()
+            os.fsync(f.fileno())
     
     def get_conversation_context(self, max_entries: int = 10) -> List[Dict[str, str]]:
         """会話コンテキストを取得"""
@@ -335,6 +345,8 @@ class StateManager:
         archive_data = asdict(self.current_session)
         with open(archive_path, 'w', encoding='utf-8') as f:
             json.dump(archive_data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         
         # 会話ログもアーカイブ
         if self.conversation_file.exists():
@@ -342,6 +354,8 @@ class StateManager:
             with open(self.conversation_file, 'r', encoding='utf-8') as src:
                 with open(conv_archive_path, 'w', encoding='utf-8') as dst:
                     dst.write(src.read())
+                    dst.flush()
+                    os.fsync(dst.fileno())
     
     async def clear_current_session(self):
         """現在のセッションをクリア"""
