@@ -31,6 +31,14 @@ try:
 except ImportError:
     RICH_AVAILABLE = False
 
+# prompt_toolkit support
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.key_binding import KeyBindings
+    PROMPT_TOOLKIT_AVAILABLE = True
+except ImportError:
+    PROMPT_TOOLKIT_AVAILABLE = False
+
 
 class MCPAgent:
     """
@@ -49,6 +57,9 @@ class MCPAgent:
         self._initialize_core_components()
         self._initialize_ui_and_logging()
         self._initialize_task_executor()  # 最後に初期化（他の全てが必要なため）
+        
+        # prompt_toolkit用
+        self._prompt_session = None
     
     def _initialize_core_components(self):
         """コアコンポーネント（外部サービス、設定、データ構造）の初期化"""
@@ -653,6 +664,36 @@ class MCPAgent:
                 # タイムアウトやキャンセルは静かに処理
                 pass
 
+def create_prompt_session(agent):
+    """ESCでスキップ/キャンセル機能付きプロンプトセッション作成"""
+    if not PROMPT_TOOLKIT_AVAILABLE:
+        return None
+    
+    try:
+        bindings = KeyBindings()
+        
+        @bindings.add('escape')  # ESC単発のみ
+        async def handle_esc(event):
+            # CLARIFICATION状態かチェック
+            if agent.state_manager.has_pending_tasks():
+                pending_tasks = agent.state_manager.get_pending_tasks()
+                clarification_tasks = [t for t in pending_tasks if t.tool == "CLARIFICATION"]
+                
+                if clarification_tasks:
+                    print("\n⏭ 確認をスキップします...")
+                    event.app.exit(result='skip')
+                    return
+            
+            # 通常時は入力をキャンセル
+            print("\n[ESC] 入力をキャンセルしました")
+            event.app.exit(result='')
+        
+        return PromptSession(key_bindings=bindings)
+    
+    except Exception:
+        # Windows環境やCI環境でのコンソールエラーを無視
+        return None
+
 async def main():
     """メイン実行関数"""
     print("MCP Agent を起動しています...")
@@ -667,15 +708,28 @@ async def main():
             ui_mode=agent.ui_mode
         )
         print("終了するには 'quit' または 'exit' を入力してください。")
+        
+        # プロンプトセッション初期化
+        agent._prompt_session = create_prompt_session(agent)
+        if agent._prompt_session:
+            print("ESCキー: 確認スキップ/入力キャンセル")
+        
         print("-" * 60)
         
         while True:
             try:
-                if agent._has_rich_method('input_prompt'):
+                if agent._prompt_session:
+                    # prompt_toolkit使用
+                    user_input = await agent._prompt_session.prompt_async("Agent> ")
+                elif agent._has_rich_method('input_prompt'):
                     user_input = agent.display.input_prompt("Agent").strip()
                 else:
                     user_input = input("\nAgent> ").strip()
             except (EOFError, KeyboardInterrupt):
+                # Ctrl+Cでも一時停止を実行
+                if hasattr(agent, 'pause_session'):
+                    print("\n作業を保存中...")
+                    await agent.pause_session()
                 break
             
             if user_input.lower() in ['quit', 'exit', '終了']:
