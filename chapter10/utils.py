@@ -138,16 +138,6 @@ class Logger:
         if not self.should_log(log_level) and not always_print:
             return
             
-        # 内部ログ出力（常に記録）
-        log_methods = {
-            "debug": self.debug,
-            "info": self.info,
-            "warning": self.warning,
-            "error": self.error,
-        }
-        log_func = log_methods.get(log_level.lower(), self.info)
-        log_func(message)
-        
         # コンソール出力
         if self.verbose or always_print:
             if prefix_key:
