@@ -8,6 +8,7 @@ dependencies = [
     "bs4>=0.0.2",
     "fastmcp>=2.11.3",
     "openai>=1.99.9",
+    "prompt-toolkit>=3.0.52",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.2.1",
