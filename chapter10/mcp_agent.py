@@ -719,12 +719,12 @@ def create_prompt_session(agent):
                 clarification_tasks = [t for t in pending_tasks if t.tool == "CLARIFICATION"]
                 
                 if clarification_tasks:
-                    self.logger.ulog("\n⏭ 確認をスキップします...", "info", always_print=True)
+                    agent.logger.ulog("\n⏭ 確認をスキップします...", "info", always_print=True)
                     event.app.exit(result='skip')
                     return
             
             # 通常時は入力をキャンセル
-            self.logger.ulog("\n入力をキャンセルしました", "info:esc", always_print=True)
+            agent.logger.ulog("\n入力をキャンセルしました", "info:esc", always_print=True)
             event.app.exit(result='')
         
         return PromptSession(key_bindings=bindings)
@@ -746,14 +746,14 @@ async def main():
             tools=len(agent.connection_manager.tools_info),
             ui_mode=agent.ui_mode
         )
-        self.logger.ulog("終了するには 'quit' または 'exit' を入力してください。", "info", always_print=True)
+        agent.logger.ulog("終了するには 'quit' または 'exit' を入力してください。", "info", always_print=True)
         
         # プロンプトセッション初期化
         agent._prompt_session = create_prompt_session(agent)
         if agent._prompt_session:
-            self.logger.ulog("ESCキー: 確認スキップ/入力キャンセル", "info", always_print=True)
+            agent.logger.ulog("ESCキー: 確認スキップ/入力キャンセル", "info", always_print=True)
         
-        self.logger.ulog("-" * 60, "info", always_print=True)
+        agent.logger.ulog("-" * 60, "info", always_print=True)
         
         while True:
             try:
@@ -767,7 +767,7 @@ async def main():
             except (EOFError, KeyboardInterrupt):
                 # Ctrl+Cでも一時停止を実行
                 if hasattr(agent, 'pause_session'):
-                    self.logger.ulog("\n作業を保存中...", "info", always_print=True)
+                    agent.logger.ulog("\n作業を保存中...", "info", always_print=True)
                     await agent.pause_session()
                 break
             
@@ -784,17 +784,17 @@ async def main():
             if agent._has_rich_method('show_markdown_result'):
                 agent.display.show_markdown_result(response)
             else:
-                self.logger.ulog(f"\n{response}", "info", always_print=True)
+                agent.logger.ulog(f"\n{response}", "info", always_print=True)
     
     except KeyboardInterrupt:
-        self.logger.ulog("\n\nCtrl+Cが押されました。", "warning:interrupt", always_print=True)
+        agent.logger.ulog("\n\nCtrl+Cが押されました。", "warning:interrupt", always_print=True)
     finally:
         try:
             await agent.close()
         except (asyncio.CancelledError, Exception):
             # クリーンアップエラーは無視
             pass
-        self.logger.ulog("\nMCP Agent を終了しました。", "info", always_print=True)
+        agent.logger.ulog("\nMCP Agent を終了しました。", "info", always_print=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
