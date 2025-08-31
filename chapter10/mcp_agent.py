@@ -235,19 +235,29 @@ class MCPAgent:
     
     async def _execute_interactive_dialogue(self, user_query: str) -> str:
         """
-統合実行エンジン - 状態管理とCLARIFICATION対応
+        統合実行エンジン - 状態管理とCLARIFICATION対応
         
         新機能:
         - 状態の永続化
         - CLARIFICATIONタスクによるユーザー確認
         - タスクの中断・再開機能
         """
+        # クエリコンテキストの準備
+        await self._prepare_query_context(user_query)
+        
+        # 実行フローの制御
+        return await self._handle_execution_flow(user_query)
+    
+    async def _prepare_query_context(self, user_query: str) -> None:
+        """クエリコンテキストの準備"""
         # 現在のクエリを保存（LLM判断で使用）
         self.current_user_query = user_query
         
         # 状態に会話を記録
         await self.state_manager.add_conversation_entry("user", user_query)
-        
+    
+    async def _handle_execution_flow(self, user_query: str) -> str:
+        """実行フローの制御"""
         # 未完了のタスクがある場合の処理
         if self.state_manager.has_pending_tasks():
             return await self._handle_pending_tasks(user_query)
@@ -261,6 +271,11 @@ class MCPAgent:
         # 状態に実行タイプを記録
         await self.state_manager.set_user_query(user_query, execution_type)
         
+        # 実行タイプ別のルーティング
+        return await self._route_by_execution_type(execution_type, user_query, execution_result)
+    
+    async def _route_by_execution_type(self, execution_type: str, user_query: str, execution_result: Dict) -> str:
+        """実行タイプ別ルーティング"""
         if execution_type == "NO_TOOL":
             response = execution_result.get("response", "了解しました。")
             await self.state_manager.add_conversation_entry("assistant", response)
@@ -487,11 +502,26 @@ class MCPAgent:
     
     async def _interpret_planned_results(self, user_query: str, results: List[Dict]) -> str:
         """計画実行の結果を解釈"""
-        # 現在のリクエストのみに焦点を当て、前のタスク結果の混入を防ぐ
-        recent_context = self.conversation_manager.get_recent_context(include_results=False)
+        # 結果のシリアライズ
+        serializable_results = self._serialize_execution_results(results)
         
-        # 結果をシリアライズ
+        # LLMによる結果解釈
+        final_response = await self._generate_interpretation_response(user_query, serializable_results)
+        
+        # 表示・保存処理
+        self._handle_result_display_and_storage(final_response, serializable_results)
+        
+        # basicモードの場合、結果表示ヘッダーを追加
+        if self.ui_mode == "basic":
+            result_with_header = f"\n{'='*50}\n🔍 実行結果\n{'='*50}\n{final_response}"
+            return result_with_header
+        
+        return final_response
+    
+    def _serialize_execution_results(self, results: List[Dict]) -> List[Dict]:
+        """実行結果のシリアライズ処理"""
         serializable_results = []
+        
         for r in results:
             result_data = {
                 "step": r.get("step", r.get("task_description", "タスク")),
@@ -524,6 +554,13 @@ class MCPAgent:
                 result_preview = str(result.get("result", "N/A"))[:100] + "..." if len(str(result.get("result", "N/A"))) > 100 else str(result.get("result", "N/A"))
                 self.logger.debug(f"  [{i+1}] Tool: {result['tool']}, Result: {result_preview}")
         
+        return serializable_results
+    
+    async def _generate_interpretation_response(self, user_query: str, serializable_results: List[Dict]) -> str:
+        """LLMによる結果解釈処理"""
+        # 現在のリクエストのみに焦点を当て、前のタスク結果の混入を防ぐ
+        recent_context = self.conversation_manager.get_recent_context(include_results=False)
+        
         # プロンプトテンプレートから取得
         prompt = PromptTemplates.get_result_interpretation_prompt(
             recent_context=recent_context,
@@ -540,32 +577,32 @@ class MCPAgent:
             response = await self.llm.chat.completions.create(**params)
             
             # 最終応答を取得
-            final_response = response.choices[0].message.content
-            
-            # Rich UIの場合は美しく表示
-            if self._has_rich_method('show_result_panel'):
-                # JSONまたは長いテキストかどうか判定
-                if len(final_response) > 100 or final_response.strip().startswith('{'):
-                    self.display.show_result_panel("実行結果", final_response, success=True)
-                
-            # 実行結果と共に履歴に保存
-            self.conversation_manager.add_to_conversation("assistant", final_response, serializable_results)
-            await self.state_manager.add_conversation_entry("assistant", final_response)
-            
-            # basicモードの場合、結果表示ヘッダーを追加
-            if self.ui_mode == "basic":
-                result_with_header = f"\n{'='*50}\n🔍 実行結果\n{'='*50}\n{final_response}"
-                return result_with_header
-            
-            return final_response
+            return response.choices[0].message.content
             
         except Exception as e:
             # フォールバック
-            successful_results = [r for r in results if r["success"]]
+            successful_results = [r for r in serializable_results if r["success"]]
             if successful_results:
                 return f"実行完了しました。{len(successful_results)}個のタスクが成功しました。"
             else:
                 return f"申し訳ありませんが、処理中にエラーが発生しました。"
+    
+    def _handle_result_display_and_storage(self, final_response: str, serializable_results: List[Dict]) -> None:
+        """表示・保存処理"""
+        # Rich UIの場合は美しく表示
+        if self._has_rich_method('show_result_panel'):
+            # JSONまたは長いテキストかどうか判定
+            if len(final_response) > 100 or final_response.strip().startswith('{'):
+                self.display.show_result_panel("実行結果", final_response, success=True)
+            
+        # 実行結果と共に履歴に保存
+        self.conversation_manager.add_to_conversation("assistant", final_response, serializable_results)
+        
+        # 状態管理への追加は非同期なので、必要に応じて別途実行
+        import asyncio
+        asyncio.create_task(self.state_manager.add_conversation_entry("assistant", final_response))
+        
+        # basicモードの場合はヘッダー付き表示で返す（呼び出し元で処理）
     
     async def pause_session(self):
         """セッションを一時停止（ESCキー対応）"""
