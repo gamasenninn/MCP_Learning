@@ -225,7 +225,6 @@ development:
 development:
   verbose: true              # 詳細ログ表示
   show_api_calls: true       # API呼び出し表示
-  show_statistics: true      # 実行統計表示
 ```
 
 ## 🚀 開発・テスト

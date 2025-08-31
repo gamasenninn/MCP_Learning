@@ -103,17 +103,6 @@ class MCPAgent:
             "total_api_calls": 0
         }
         
-        self.execution_metrics = {
-            "task_generation_success": 0,
-            "task_generation_failures": 0,
-            "task_generation_retry_success": 0,
-            "task_generation_total_failures": 0,
-            "json_parse_errors": 0,
-            "timeout_count": 0,
-            "fallback_usage": 0,
-            "average_task_count": 0.0,
-            "total_task_lists": 0
-        }
     
     def _initialize_custom_settings(self):
         """カスタム設定の読み込み"""
@@ -477,13 +466,6 @@ class MCPAgent:
                 task_list = await self._generate_simple_task_list_v6(user_query, temperature)
                 
                 if task_list:
-                    # 成功時はメトリクスを更新
-                    if hasattr(self, 'execution_metrics'):
-                        self.execution_metrics['task_generation_success'] += 1
-                        self.execution_metrics['total_task_lists'] += 1
-                        self.execution_metrics['average_task_count'] += len(task_list)
-                        if attempt > 0:
-                            self.execution_metrics['task_generation_retry_success'] += 1
                     
                     if attempt > 0:
                         self.logger.info(f"[成功] タスクリスト生成 - {attempt + 1}回目の試行で成功")
@@ -505,16 +487,10 @@ class MCPAgent:
                 last_error = f"試行{attempt + 1}: {str(e)}"
                 self.logger.info(f"[リトライ] {last_error}")
             
-            # メトリクス更新
-            if hasattr(self, 'execution_metrics'):
-                self.execution_metrics['task_generation_failures'] += 1
         
         # 全ての試行が失敗
         self.logger.error(f"[失敗] タスクリスト生成 - {max_retries}回の試行全てが失敗")
         self.logger.error(f"最後のエラー: {last_error}")
-        
-        if hasattr(self, 'execution_metrics'):
-            self.execution_metrics['task_generation_total_failures'] += 1
             
         return []
     
@@ -602,39 +578,6 @@ class MCPAgent:
                 return f"申し訳ありませんが、処理中にエラーが発生しました。"
        
     
-    def _show_execution_metrics(self):
-        """実行メトリクスを表示"""
-        if not self.config.get("development", {}).get("show_statistics", True):
-            return
-            
-        print("\n" + "=" * 50)
-        print("📊 実行メトリクス")
-        print("=" * 50)
-        
-        # タスクリスト生成統計
-        total_attempts = (self.execution_metrics["task_generation_success"] + 
-                         self.execution_metrics["task_generation_total_failures"])
-        if total_attempts > 0:
-            success_rate = (self.execution_metrics["task_generation_success"] / total_attempts) * 100
-            print(f"タスクリスト生成成功率: {success_rate:.1f}% ({self.execution_metrics['task_generation_success']}/{total_attempts})")
-        
-        if self.execution_metrics["task_generation_retry_success"] > 0:
-            print(f"リトライ成功: {self.execution_metrics['task_generation_retry_success']}回")
-        
-        if self.execution_metrics["json_parse_errors"] > 0:
-            print(f"JSON解析エラー: {self.execution_metrics['json_parse_errors']}回")
-            
-        if self.execution_metrics["timeout_count"] > 0:
-            print(f"タイムアウト発生: {self.execution_metrics['timeout_count']}回")
-            
-        if self.execution_metrics["fallback_usage"] > 0:
-            print(f"フォールバック使用: {self.execution_metrics['fallback_usage']}回")
-        
-        if self.execution_metrics["total_task_lists"] > 0:
-            avg_tasks = self.execution_metrics["average_task_count"] / self.execution_metrics["total_task_lists"]
-            print(f"平均タスク数: {avg_tasks:.1f}個")
-        
-        print("=" * 50)
     
     
     async def pause_session(self):
@@ -704,11 +647,6 @@ class MCPAgent:
             
             tasks = result.get("tasks", [])
             
-            # メトリクス更新
-            if tasks and hasattr(self, 'execution_metrics'):
-                self.execution_metrics['task_generation_success'] += 1
-                self.execution_metrics['total_task_lists'] += 1
-                self.execution_metrics['average_task_count'] += len(tasks)
             
             return tasks
             
@@ -729,8 +667,6 @@ class MCPAgent:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
         
-        # 終了時にメトリクス表示（同期的）
-        self._show_execution_metrics()
         
         # 接続のクリーンアップ
         if self.connection_manager:
