@@ -73,12 +73,23 @@ class Logger:
         'error': 'ERROR'
     }
     
-    def __init__(self, verbose: bool = True):
+    # ログレベルの優先度
+    LEVEL_PRIORITY = {
+        'DEBUG': 10,
+        'INFO': 20,
+        'WARNING': 30,
+        'ERROR': 40
+    }
+    
+    def __init__(self, verbose: bool = True, log_level: str = "INFO"):
         """
         Args:
             verbose: ログ出力を有効にするかどうか
+            log_level: 出力する最小ログレベル (DEBUG/INFO/WARNING/ERROR)
         """
         self.verbose = verbose
+        self.log_level = log_level.upper()
+        self.min_priority = self.LEVEL_PRIORITY.get(self.log_level, 20)
     
     def log(self, level: str, message: str):
         """統一ログ出力メソッド"""
@@ -101,4 +112,63 @@ class Logger:
     def error(self, message: str):
         """エラーメッセージ"""
         self.log('error', message)
+    
+    def should_log(self, level: str) -> bool:
+        """指定レベルのログを出力すべきか判定"""
+        level = level.upper()
+        priority = self.LEVEL_PRIORITY.get(level, 20)
+        return priority >= self.min_priority
+    
+    def ulog(self, message: str, level: str = "info", always_print: bool = False) -> None:
+        """
+        統一ログ出力メソッド (unified log)
+        
+        Args:
+            message: ログメッセージ
+            level: ログレベル（形式: "loglevel" または "loglevel:prefix"）
+                   例: "info", "error", "info:session", "warning:interrupt"
+            always_print: Trueの場合、verbose設定に関わらず表示
+        """
+        # ログレベルとプレフィックスの分離
+        parts = level.split(':', 1)
+        log_level = parts[0]
+        prefix_key = parts[1] if len(parts) > 1 else None
+        
+        # ログレベル判定（always_printの場合は無視）
+        if not self.should_log(log_level) and not always_print:
+            return
+            
+        # 内部ログ出力（常に記録）
+        log_methods = {
+            "debug": self.debug,
+            "info": self.info,
+            "warning": self.warning,
+            "error": self.error,
+        }
+        log_func = log_methods.get(log_level.lower(), self.info)
+        log_func(message)
+        
+        # コンソール出力
+        if self.verbose or always_print:
+            if prefix_key:
+                prefixes = {
+                    "session": "[セッション]",
+                    "request": "[リクエスト]", 
+                    "restore": "[復元]",
+                    "pause": "[セッション一時停止]",
+                    "resume": "[セッション再開]",
+                    "clear": "[セッションクリア]",
+                    "esc": "[ESC]",
+                    "interrupt": "[中断]",
+                    "warning": "[警告]",
+                    "error": "[エラー]",
+                    "info": "[情報]",
+                    "retry": "[リトライ]",
+                    "config": "[設定]",
+                    "instruction": "[指示書]",
+                }
+                prefix = prefixes.get(prefix_key, f"[{prefix_key.upper()}]")
+                print(f"{prefix} {message}")
+            else:
+                print(message)
     

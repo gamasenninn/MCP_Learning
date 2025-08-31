@@ -75,6 +75,13 @@ development:
   # 詳細なデバッグ情報を表示
   verbose: true
   
+  # ログレベル設定 (DEBUG/INFO/WARNING/ERROR)
+  # DEBUG: 詳細デバッグ情報を含む全ログ
+  # INFO: 通常の情報以上
+  # WARNING: 警告以上
+  # ERROR: エラーのみ
+  log_level: "INFO"
+  
   # API呼び出し回数を表示
   show_api_calls: true
   

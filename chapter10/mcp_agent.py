@@ -54,8 +54,8 @@ class MCPAgent:
         """初期化（メイン処理）"""
         self.config = self._load_config(config_path)
         
+        self._initialize_ui_and_logging()  # ログ設定を最初に初期化
         self._initialize_core_components()
-        self._initialize_ui_and_logging()
         self._initialize_task_executor()  # 最後に初期化（他の全てが必要なため）
         
         # prompt_toolkit用
@@ -102,7 +102,7 @@ class MCPAgent:
             self.ui_mode = "rich"
         else:
             if ui_mode == "rich" and not RICH_AVAILABLE:
-                print("[WARNING] Rich UI requested but rich library not available. Using basic UI.")
+                self.logger.ulog("Rich UI requested but rich library not available. Using basic UI.", "warning:warning", always_print=True)
             self.display = DisplayManager(
                 show_timing=self.config["display"]["show_timing"],
                 show_thinking=self.config["display"]["show_thinking"]
@@ -111,7 +111,8 @@ class MCPAgent:
         
         # ログ設定とバナー表示
         self.verbose = self.config.get("development", {}).get("verbose", True)
-        self.logger = Logger(verbose=self.verbose)
+        log_level = self.config.get("development", {}).get("log_level", "INFO")
+        self.logger = Logger(verbose=self.verbose, log_level=log_level)
         
         if self.verbose:
             self.display.show_banner()
@@ -163,21 +164,21 @@ class MCPAgent:
                 if hasattr(self, 'logger'):
                     self.logger.info(f"AGENT.mdを読み込みました ({len(content)}文字)")
                 elif self.config.get("development", {}).get("verbose", False):
-                    print(f"[設定] AGENT.mdを読み込みました ({len(content)}文字)")
+                    self.logger.ulog(f"AGENT.mdを読み込みました ({len(content)}文字)", "info:config")
                 return content
             except Exception as e:
-                print(f"[警告] AGENT.md読み込みエラー: {e}")
+                self.logger.ulog(f"AGENT.md読み込みエラー: {e}", "warning:warning")
                 return ""
         else:
             if self.config.get("development", {}).get("verbose", False):
-                print("[情報] AGENT.mdが見つかりません（基本能力のみで動作）")
+                self.logger.ulog("AGENT.mdが見つかりません（基本能力のみで動作）", "info:info")
             return ""
     
     async def initialize(self, session_id: Optional[str] = None):
         """エージェントの初期化"""
         if self.verbose:
-            print(f"\n[指示書] {'カスタム指示あり' if self.custom_instructions else '基本能力のみ'}")
-            print("=" * 60)
+            self.logger.ulog(f"\n{'カスタム指示あり' if self.custom_instructions else '基本能力のみ'}", "info:instruction")
+            self.logger.ulog("=" * 60, "info")
         
         # MCP接続管理を初期化（V3から継承）
         await self.connection_manager.initialize()
@@ -186,12 +187,12 @@ class MCPAgent:
         actual_session_id = await self.state_manager.initialize_session(session_id)
         
         if self.verbose:
-            print(f"[セッション] {actual_session_id}")
+            self.logger.ulog(actual_session_id, "info:session")
             
             # 復元されたタスクがある場合は通知
             if self.state_manager.has_pending_tasks():
                 pending_count = len(self.state_manager.get_pending_tasks())
-                print(f"[復元] 未完了タスクが{pending_count}個あります")
+                self.logger.ulog(f"未完了タスクが{pending_count}個あります", "info:restore")
         
         return actual_session_id
     
@@ -207,8 +208,8 @@ class MCPAgent:
         self.session_stats["total_requests"] += 1
         
         if self.verbose:
-            print(f"\n[リクエスト #{self.session_stats['total_requests']}] {user_query}")
-            print("-" * 60)
+            self.logger.ulog(f"\n#{self.session_stats['total_requests']} {user_query}", "info:request")
+            self.logger.ulog("-" * 60, "info")
         
         # 会話文脈を表示
         conversation_summary = self.conversation_manager.get_conversation_summary()
@@ -230,7 +231,7 @@ class MCPAgent:
         except Exception as e:
             error_msg = f"処理エラー: {str(e)}"
             if self.verbose:
-                print(f"[エラー] {error_msg}")
+                self.logger.ulog(error_msg, "error:error")
             return error_msg
     
     async def _execute_interactive_dialogue(self, user_query: str) -> str:
@@ -324,7 +325,7 @@ class MCPAgent:
             return result
             
         except Exception as e:
-            print(f"[エラー] 実行方式判定失敗: {e}")
+            self.logger.ulog(f"実行方式判定失敗: {e}", "error:error")
             return {"type": "TOOL", "reason": "判定エラーによりデフォルト選択"}
     
     async def _handle_pending_tasks(self, user_query: str) -> str:
@@ -348,7 +349,7 @@ class MCPAgent:
             smart_query = await self.task_manager.handle_clarification_skip(
                 task, self.conversation_manager, self.state_manager
             )
-            print("\n質問をスキップしました。会話履歴と文脈から最適な処理を実行します。")
+            self.logger.ulog("\n質問をスキップしました。会話履歴と文脈から最適な処理を実行します。", "info", always_print=True)
             return await self._execute_with_tasklist(smart_query)
         else:
             # 通常の応答処理
@@ -488,10 +489,10 @@ class MCPAgent:
                     
             except json.JSONDecodeError as e:
                 last_error = f"試行{attempt + 1}: JSON解析エラー - {str(e)}"
-                self.logger.info(f"[リトライ] {last_error}")
+                self.logger.ulog(last_error, "info:retry")
             except Exception as e:
                 last_error = f"試行{attempt + 1}: {str(e)}"
-                self.logger.info(f"[リトライ] {last_error}")
+                self.logger.ulog(last_error, "info:retry")
                     
         # 全ての試行が失敗
         self.logger.error(f"[失敗] タスクリスト生成 - {max_retries}回の試行全てが失敗")
@@ -607,8 +608,8 @@ class MCPAgent:
     async def pause_session(self):
         """セッションを一時停止（ESCキー対応）"""
         await self.state_manager.pause_all_tasks()
-        print("\n[セッション一時停止] 作業が保存されました。")
-        print("次回再開時に続きから実行できます。")
+        self.logger.ulog("\n作業が保存されました。", "info:pause", always_print=True)
+        self.logger.ulog("次回再開時に続きから実行できます。", "info", always_print=True)
         return self.state_manager.get_session_summary()
     
     async def resume_session(self) -> Dict[str, Any]:
@@ -617,21 +618,21 @@ class MCPAgent:
         summary = self.state_manager.get_session_summary()
         
         if summary.get("has_work_to_resume", False):
-            print(f"\n[セッション再開] {summary['pending_tasks']}個のタスクが待機中です")
+            self.logger.ulog(f"\n{summary['pending_tasks']}個のタスクが待機中です", "info:resume", always_print=True)
             
             # 実行可能なタスクがある場合は継続実行を提案
             next_task = self.task_manager.get_next_executable_task()
             if next_task:
-                print(f"次のタスク: {next_task.description}")
+                self.logger.ulog(f"次のタスク: {next_task.description}", "info", always_print=True)
         else:
-            print("\n[セッション再開] 新しいタスクの準備完了")
+            self.logger.ulog("\n新しいタスクの準備完了", "info:resume", always_print=True)
         
         return summary
     
     async def clear_session(self):
         """現在のセッションをクリア"""
         await self.state_manager.clear_current_session()
-        print("\n[セッションクリア] 新しいセッションで開始します")
+        self.logger.ulog("\n新しいセッションで開始します", "info:clear", always_print=True)
     
     def get_session_status(self) -> Dict[str, Any]:
         """現在のセッション状態を取得"""
@@ -645,6 +646,7 @@ class MCPAgent:
             "ui_mode": self.ui_mode,
             "verbose": self.verbose
         }
+    
     
     async def _generate_simple_task_list(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:
         """シンプルなタスクリスト生成"""
@@ -717,12 +719,12 @@ def create_prompt_session(agent):
                 clarification_tasks = [t for t in pending_tasks if t.tool == "CLARIFICATION"]
                 
                 if clarification_tasks:
-                    print("\n⏭ 確認をスキップします...")
+                    self.logger.ulog("\n⏭ 確認をスキップします...", "info", always_print=True)
                     event.app.exit(result='skip')
                     return
             
             # 通常時は入力をキャンセル
-            print("\n[ESC] 入力をキャンセルしました")
+            self.logger.ulog("\n入力をキャンセルしました", "info:esc", always_print=True)
             event.app.exit(result='')
         
         return PromptSession(key_bindings=bindings)
@@ -744,14 +746,14 @@ async def main():
             tools=len(agent.connection_manager.tools_info),
             ui_mode=agent.ui_mode
         )
-        print("終了するには 'quit' または 'exit' を入力してください。")
+        self.logger.ulog("終了するには 'quit' または 'exit' を入力してください。", "info", always_print=True)
         
         # プロンプトセッション初期化
         agent._prompt_session = create_prompt_session(agent)
         if agent._prompt_session:
-            print("ESCキー: 確認スキップ/入力キャンセル")
+            self.logger.ulog("ESCキー: 確認スキップ/入力キャンセル", "info", always_print=True)
         
-        print("-" * 60)
+        self.logger.ulog("-" * 60, "info", always_print=True)
         
         while True:
             try:
@@ -765,7 +767,7 @@ async def main():
             except (EOFError, KeyboardInterrupt):
                 # Ctrl+Cでも一時停止を実行
                 if hasattr(agent, 'pause_session'):
-                    print("\n作業を保存中...")
+                    self.logger.ulog("\n作業を保存中...", "info", always_print=True)
                     await agent.pause_session()
                 break
             
@@ -782,17 +784,17 @@ async def main():
             if agent._has_rich_method('show_markdown_result'):
                 agent.display.show_markdown_result(response)
             else:
-                print(f"\n{response}")
+                self.logger.ulog(f"\n{response}", "info", always_print=True)
     
     except KeyboardInterrupt:
-        print("\n\n[中断] Ctrl+Cが押されました。")
+        self.logger.ulog("\n\nCtrl+Cが押されました。", "warning:interrupt", always_print=True)
     finally:
         try:
             await agent.close()
         except (asyncio.CancelledError, Exception):
             # クリーンアップエラーは無視
             pass
-        print("\nMCP Agent を終了しました。")
+        self.logger.ulog("\nMCP Agent を終了しました。", "info", always_print=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
