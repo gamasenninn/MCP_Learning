@@ -46,7 +46,7 @@ class SessionState:
     last_active: str
     conversation_context: List[Dict[str, str]]
     current_user_query: str = ""
-    execution_type: str = ""  # NO_TOOL, SIMPLE, COMPLEX, CLARIFICATION
+    execution_type: str = ""  # NO_TOOL, TOOL, CLARIFICATION
     pending_tasks: List[TaskState] = None
     completed_tasks: List[TaskState] = None
     

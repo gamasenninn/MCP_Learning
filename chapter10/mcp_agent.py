@@ -310,8 +310,8 @@ class MCPAgent:
             result = json.loads(content)
             
             # CLARIFICATION も含む
-            # SIMPLE/COMPLEX統合のため、NO_TOOL, CLARIFICATION以外は全てTOOLに統一
-            if result.get('type') in ['SIMPLE', 'COMPLEX']:
+            # 統一化により、NO_TOOL, CLARIFICATION以外は全てTOOLに統一
+            if result.get('type') not in ['NO_TOOL', 'CLARIFICATION']:
                 result['type'] = 'TOOL'
             
             
@@ -464,8 +464,8 @@ class MCPAgent:
                 else:
                     temperature = initial_temp
                 
-                # シンプルなタスクリスト生成を使用
-                task_list = await self._generate_simple_task_list(user_query, temperature)
+                # 統一タスクリスト生成を使用
+                task_list = await self._generate_unified_task_list(user_query, temperature)
                 
                 if task_list:
                     
@@ -643,17 +643,18 @@ class MCPAgent:
         }
     
     
-    async def _generate_simple_task_list(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:
-        """シンプルなタスクリスト生成"""
+    async def _generate_unified_task_list(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:
+        """統一タスクリスト生成（SIMPLE/COMPLEX統合版）"""
         try:
             recent_context = self.conversation_manager.get_recent_context(include_results=False)
             tools_info = self.connection_manager.format_tools_for_llm()
             
-            # シンプルなプロンプトを使用
-            prompt = PromptTemplates.get_simple_task_list_prompt(
+            # 統一プロンプトを使用（custom_instructionsはAGENT.mdから）
+            prompt = PromptTemplates.get_unified_task_list_prompt(
                 recent_context=recent_context,
                 user_query=user_query,
-                tools_info=tools_info
+                tools_info=tools_info,
+                custom_instructions=self.custom_instructions
             )
             
             params = self._get_llm_params(

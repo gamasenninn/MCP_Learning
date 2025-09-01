@@ -53,21 +53,20 @@ async def test_llm_sql_correction_end_to_end():
             assert response is not None
             assert len(response) > 0
             
-            # セッション情報から実行されたタスクを確認
-            session_data = agent.state_manager.get_session_data()
-            completed_tasks = session_data.get('completed_tasks', [])
+            # 完了済みタスクから実行されたタスクを確認
+            completed_tasks = agent.state_manager.get_completed_tasks()
             
             # execute_safe_queryタスクが存在することを確認
             sql_task = None
             for task in completed_tasks:
-                if task.get('tool') == 'execute_safe_query':
+                if task.tool == 'execute_safe_query':
                     sql_task = task
                     break
             
             assert sql_task is not None, "execute_safe_queryタスクが見つかりません"
             
             # SQLが正しく修正されていることを確認
-            sql_params = sql_task.get('params', {})
+            sql_params = sql_task.params or {}
             executed_sql = sql_params.get('sql', '')
             
             # 正しいSQL構造の要素が含まれていることを確認
@@ -78,7 +77,7 @@ async def test_llm_sql_correction_end_to_end():
             assert 'total_amount' in executed_sql.lower() or 'sales' in executed_sql.lower()  # 売上
             
             # 結果が空でないことを確認
-            task_result = sql_task.get('result', '')
+            task_result = sql_task.result or ''
             assert task_result != ""
             assert task_result != "{}"
             
