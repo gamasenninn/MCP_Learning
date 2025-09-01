@@ -17,6 +17,8 @@ from unittest.mock import AsyncMock, MagicMock
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from config_manager import Config, DisplayConfig, LLMConfig, ExecutionConfig, ConversationConfig, DevelopmentConfig
+
 from state_manager import StateManager, TaskState
 from task_manager import TaskManager
 from mcp_agent import MCPAgent
@@ -42,31 +44,31 @@ def temp_dir():
 @pytest.fixture
 def mock_config():
     """モック設定"""
-    return {
-        "display": {
-            "ui_mode": "basic",
-            "show_timing": False,
-            "show_thinking": False
-        },
-        "llm": {
-            "model": "gpt-4o-mini",
-            "temperature": 0.2,
-            "reasoning_effort": "minimal",
-            "max_completion_tokens": 1000
-        },
-        "execution": {
-            "max_retries": 3,
-            "timeout_seconds": 30,
-            "max_tasks": 10
-        },
-        "conversation": {
-            "context_limit": 10,
-            "max_history": 50
-        },
-        "development": {
-            "verbose": False
-        }
-    }
+    return Config(
+        display=DisplayConfig(
+            ui_mode="basic",
+            show_timing=False,
+            show_thinking=False
+        ),
+        llm=LLMConfig(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            reasoning_effort="minimal",
+            max_completion_tokens=1000
+        ),
+        execution=ExecutionConfig(
+            max_retries=3,
+            timeout_seconds=30,
+            max_tasks=10
+        ),
+        conversation=ConversationConfig(
+            context_limit=10,
+            max_history=50
+        ),
+        development=DevelopmentConfig(
+            verbose=False
+        )
+    )
 
 
 @pytest.fixture

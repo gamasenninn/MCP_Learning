@@ -13,7 +13,8 @@ Task Executor for MCP Agent
 import json
 import re
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
+from dataclasses import asdict
 from openai import AsyncOpenAI
 
 from state_manager import TaskState, StateManager
@@ -38,7 +39,7 @@ class TaskExecutor:
                  state_manager: StateManager,
                  display_manager: DisplayManager,
                  llm: AsyncOpenAI,
-                 config: Dict[str, Any],
+                 config: Union[Dict[str, Any], Any],
                  error_handler: ErrorHandler = None,
                  verbose: bool = True):
         """
@@ -57,7 +58,11 @@ class TaskExecutor:
         self.state_manager = state_manager
         self.display = display_manager
         self.llm = llm
-        self.config = config
+        # Configオブジェクトの場合は辞書に変換
+        if hasattr(config, '__dataclass_fields__'):  # dataclassの場合
+            self.config = asdict(config)
+        else:
+            self.config = config
         self.error_handler = error_handler
         self.verbose = verbose
         self.logger = Logger(verbose=verbose)

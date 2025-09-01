@@ -13,6 +13,7 @@ import asyncio
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from mcp_agent import MCPAgent, create_prompt_session, PROMPT_TOOLKIT_AVAILABLE
+from config_manager import Config, DisplayConfig, DevelopmentConfig
 from state_manager import TaskState
 
 
@@ -138,16 +139,12 @@ async def test_esc_skip_workflow():
              patch('mcp_agent.ConnectionManager'), \
              patch('mcp_agent.StateManager'), \
              patch('mcp_agent.TaskManager'), \
-             patch('mcp_agent.MCPAgent._load_config') as mock_config:
+             patch('mcp_agent.ConfigManager.load') as mock_config:
             
-            mock_config.return_value = {
-                "display": {
-                    "ui_mode": "basic",
-                    "show_timing": False,
-                    "show_thinking": False
-                },
-                "development": {"verbose": False}
-            }
+            mock_config.return_value = Config(
+                display=DisplayConfig(ui_mode="basic", show_timing=False, show_thinking=False),
+                development=DevelopmentConfig(verbose=False)
+            )
             agent = MCPAgent()
             
             # Windows環境でのprompt_toolkit問題を回避してテスト

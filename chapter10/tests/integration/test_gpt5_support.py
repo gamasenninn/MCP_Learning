@@ -8,6 +8,7 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock
 
 from mcp_agent import MCPAgent
+from config_manager import Config, LLMConfig
 
 
 @pytest.mark.integration
@@ -16,7 +17,7 @@ from mcp_agent import MCPAgent
 async def test_gpt5_parameter_generation(mcp_agent_mock):
     """GPT-5パラメータ生成のテスト"""
     agent = mcp_agent_mock
-    agent.config["llm"]["model"] = "gpt-5-mini"
+    agent.config.llm.model = "gpt-5-mini"
     
     # GPT-5用パラメータ生成
     params = agent._get_llm_params(
@@ -37,7 +38,7 @@ async def test_gpt5_parameter_generation(mcp_agent_mock):
 async def test_gpt4_parameter_generation(mcp_agent_mock):
     """GPT-4パラメータ生成のテスト"""
     agent = mcp_agent_mock
-    agent.config["llm"]["model"] = "gpt-4o-mini"
+    agent.config.llm.model = "gpt-4o-mini"
     
     # GPT-4用パラメータ生成
     params = agent._get_llm_params(
@@ -61,7 +62,7 @@ def test_gpt5_models_support():
     gpt5_models = ["gpt-5-mini", "gpt-5-nano", "gpt-5"]
     
     for model in gpt5_models:
-        agent.config = {"llm": {"model": model}}
+        agent.config = Config(llm=LLMConfig(model=model))
         params = agent._get_llm_params(messages=[])
         
         # 全てのGPT-5モデルで適切なパラメータが生成されることを確認
@@ -75,13 +76,13 @@ def test_gpt5_models_support():
 def test_reasoning_effort_levels():
     """推論レベル設定のテスト"""
     agent = MCPAgent()
-    agent.config = {
-        "llm": {
-            "model": "gpt-5-mini",
-            "reasoning_effort": "high",
-            "max_completion_tokens": 2000
-        }
-    }
+    agent.config = Config(
+        llm=LLMConfig(
+            model="gpt-5-mini",
+            reasoning_effort="high", 
+            max_completion_tokens=2000
+        )
+    )
     
     params = agent._get_llm_params(messages=[])
     

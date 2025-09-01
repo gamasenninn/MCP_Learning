@@ -9,15 +9,16 @@ import os
 import json
 import asyncio
 import time
-import yaml
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+from dataclasses import asdict
 from openai import AsyncOpenAI
 
 from connection_manager import ConnectionManager
 from display_manager import DisplayManager
 from error_handler import ErrorHandler
 from prompts import PromptTemplates
+from config_manager import ConfigManager, Config
 from utils import Logger, safe_str
 from state_manager import StateManager, TaskState
 from task_manager import TaskManager
@@ -52,7 +53,8 @@ class MCPAgent:
     
     def __init__(self, config_path: str = "config.yaml"):
         """初期化（メイン処理）"""
-        self.config = self._load_config(config_path)
+        self.config = ConfigManager.load(config_path)
+        ConfigManager.validate_config(self.config)
         
         self._initialize_ui_and_logging()  # ログ設定を最初に初期化
         self._initialize_core_components()
@@ -67,15 +69,18 @@ class MCPAgent:
         self.llm = AsyncOpenAI()
         self.connection_manager = ConnectionManager()
         
+        # ErrorHandlerは辞書形式の設定を期待するため一時的に変換
+        config_dict = self._config_to_dict()
         self.error_handler = ErrorHandler(
-            config=self.config,
+            config=config_dict,
             llm=self.llm,
-            verbose=self.config.get("development", {}).get("verbose", True)
+            verbose=self.config.development.verbose
         )
         
         self.state_manager = StateManager()
         self.task_manager = TaskManager(self.state_manager, self.llm)
-        self.conversation_manager = ConversationManager(self.state_manager, self.config)
+        # ConversationManagerも辞書形式の設定を期待するため変換
+        self.conversation_manager = ConversationManager(self.state_manager, config_dict)
         
         # データ構造
         self.session_stats = {
@@ -92,26 +97,26 @@ class MCPAgent:
     def _initialize_ui_and_logging(self):
         """UI表示とログ設定の初期化"""
         # UI表示管理
-        ui_mode = self.config.get("display", {}).get("ui_mode", "basic")
+        ui_mode = self.config.display.ui_mode
         
         if ui_mode == "rich" and RICH_AVAILABLE:
             self.display = RichDisplayManager(
-                show_timing=self.config["display"]["show_timing"],
-                show_thinking=self.config["display"]["show_thinking"]
+                show_timing=self.config.display.show_timing,
+                show_thinking=self.config.display.show_thinking
             )
             self.ui_mode = "rich"
         else:
             if ui_mode == "rich" and not RICH_AVAILABLE:
                 self.logger.ulog("Rich UI requested but rich library not available. Using basic UI.", "warning:warning", always_print=True)
             self.display = DisplayManager(
-                show_timing=self.config["display"]["show_timing"],
-                show_thinking=self.config["display"]["show_thinking"]
+                show_timing=self.config.display.show_timing,
+                show_thinking=self.config.display.show_thinking
             )
             self.ui_mode = "basic"
         
         # ログ設定とバナー表示
-        self.verbose = self.config.get("development", {}).get("verbose", True)
-        log_level = self.config.get("development", {}).get("log_level", "INFO")
+        self.verbose = self.config.development.verbose
+        log_level = self.config.development.log_level
         self.logger = Logger(verbose=self.verbose, log_level=log_level)
         
         if self.verbose:
@@ -123,13 +128,14 @@ class MCPAgent:
     
     def _initialize_task_executor(self):
         """TaskExecutorの初期化（全コンポーネント初期化後に実行）"""
+        config_dict = self._config_to_dict()
         self.task_executor = TaskExecutor(
             task_manager=self.task_manager,
             connection_manager=self.connection_manager,
             state_manager=self.state_manager,
             display_manager=self.display,
             llm=self.llm,
-            config=self.config,
+            config=config_dict,
             error_handler=self.error_handler,
             verbose=self.verbose
         )
@@ -142,16 +148,10 @@ class MCPAgent:
         """Rich UIの特定メソッドが利用可能か判定"""
         return self._is_rich_ui_enabled() and hasattr(self.display, method_name)
     
-    def _load_config(self, config_path: str) -> Dict:
-        """設定ファイルを読み込み（必須）"""
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(
-                f"設定ファイル '{config_path}' が見つかりません。\n"
-                f"'config.sample.yaml' を '{config_path}' にコピーしてください。"
-            )
-        
-        with open(config_path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+    def _config_to_dict(self) -> Dict:
+        """互換性のためConfigオブジェクトを辞書に変換"""
+        return asdict(self.config)
+    
     
     def _load_agent_md(self) -> str:
         """AGENT.mdを読み込み（V3から継承）"""
@@ -163,14 +163,14 @@ class MCPAgent:
                     content = f.read()
                 if hasattr(self, 'logger'):
                     self.logger.info(f"AGENT.mdを読み込みました ({len(content)}文字)")
-                elif self.config.get("development", {}).get("verbose", False):
+                elif self.config.development.verbose:
                     self.logger.ulog(f"AGENT.mdを読み込みました ({len(content)}文字)", "info:config")
                 return content
             except Exception as e:
                 self.logger.ulog(f"AGENT.md読み込みエラー: {e}", "warning:warning")
                 return ""
         else:
-            if self.config.get("development", {}).get("verbose", False):
+            if self.config.development.verbose:
                 self.logger.ulog("AGENT.mdが見つかりません（基本能力のみで動作）", "info:info")
             return ""
     
@@ -215,7 +215,7 @@ class MCPAgent:
         conversation_summary = self.conversation_manager.get_conversation_summary()
         if conversation_summary["total_messages"] > 0:
             context_count = min(conversation_summary["total_messages"], 
-                              self.config["conversation"]["context_limit"])
+                              self.config.conversation.context_limit)
             self.display.show_context_info(context_count)
         
         try:
@@ -426,13 +426,13 @@ class MCPAgent:
     
     def _get_llm_params(self, **kwargs) -> Dict:
         """モデルに応じたパラメータを生成"""
-        model = self.config["llm"]["model"]
+        model = self.config.llm.model
         params = {"model": model, **kwargs}
         
         if model.startswith("gpt-5"):
             # GPT-5系の設定
-            params["max_completion_tokens"] = self.config["llm"].get("max_completion_tokens", 5000)
-            params["reasoning_effort"] = self.config["llm"].get("reasoning_effort", "minimal")
+            params["max_completion_tokens"] = self.config.llm.max_completion_tokens
+            params["reasoning_effort"] = self.config.llm.reasoning_effort
             
             # GPT-5系はtemperature=1のみサポート
             if "temperature" in params:
@@ -453,11 +453,11 @@ class MCPAgent:
         Returns:
             生成されたタスクリスト
         """
-        retry_config = self.config.get("execution", {}).get("retry_strategy", {})
-        max_retries = retry_config.get("max_retries", 3)
-        use_progressive = retry_config.get("progressive_temperature", True)
-        initial_temp = retry_config.get("initial_temperature", 0.1)
-        temp_increment = retry_config.get("temperature_increment", 0.2)
+        retry_config = self.config.execution.retry_strategy
+        max_retries = retry_config.max_retries
+        use_progressive = retry_config.progressive_temperature
+        initial_temp = retry_config.initial_temperature
+        temp_increment = retry_config.temperature_increment
         
         last_error = None
         
@@ -478,7 +478,7 @@ class MCPAgent:
                         self.logger.info(f"[成功] タスクリスト生成 - {attempt + 1}回目の試行で成功")
                     
                     # タスク数制限（全体的な上限）
-                    max_tasks = self.config.get("execution", {}).get("max_tasks", 10)
+                    max_tasks = self.config.execution.max_tasks
                     if len(task_list) > max_tasks:
                         self.logger.warning(f"タスク数制限: {len(task_list)} → {max_tasks}")
                         task_list = task_list[:max_tasks]
@@ -533,7 +533,7 @@ class MCPAgent:
             
             if r["success"]:
                 # 成功時は結果を含める
-                max_length = self.config.get("result_display", {}).get("max_result_length", 1000)
+                max_length = self.config.result_display.max_result_length
                 result_str = str(r["result"])
                 
                 if len(result_str) <= max_length:
@@ -541,7 +541,7 @@ class MCPAgent:
                 else:
                     # 長すぎる場合は省略情報を追加
                     result_data["result"] = result_str[:max_length]
-                    if self.config.get("result_display", {}).get("show_truncated_info", True):
+                    if self.config.result_display.show_truncated_info:
                         result_data["result"] += f"\n[注記: 結果が長いため{max_length}文字で省略。実際の結果はより多くのデータを含む可能性があります]"
             else:
                 result_data["error"] = r["error"]

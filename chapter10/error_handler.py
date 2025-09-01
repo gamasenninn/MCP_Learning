@@ -13,7 +13,8 @@ Error Handler for MCP Agent
 import asyncio
 import json
 import re
-from typing import Dict, Any, Optional, Callable, List
+from typing import Dict, Any, Optional, Callable, List, Union
+from dataclasses import asdict
 from openai import AsyncOpenAI
 
 
@@ -46,14 +47,18 @@ class ErrorHandler:
         }
     }
     
-    def __init__(self, config: Dict, llm: Optional[AsyncOpenAI] = None, verbose: bool = True):
+    def __init__(self, config: Union[Dict, Any], llm: Optional[AsyncOpenAI] = None, verbose: bool = True):
         """
         Args:
-            config: 設定辞書
+            config: 設定辞書またはConfigオブジェクト
             llm: OpenAI LLMクライアント（パラメータ修正用）
             verbose: 詳細ログ出力
         """
-        self.config = config
+        # Configオブジェクトの場合は辞書に変換
+        if hasattr(config, '__dataclass_fields__'):  # dataclassの場合
+            self.config = asdict(config)
+        else:
+            self.config = config
         self.llm = llm
         self.verbose = verbose
         self.logger = Logger(verbose=verbose)

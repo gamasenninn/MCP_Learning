@@ -52,10 +52,10 @@ async def test_mcp_agent_initialization(real_mcp_agent):
     assert real_mcp_agent.config is not None
     
     # 基本的な設定が読み込まれているか確認
-    assert "llm" in real_mcp_agent.config
-    assert "model" in real_mcp_agent.config["llm"]
+    assert hasattr(real_mcp_agent.config, 'llm')
+    assert hasattr(real_mcp_agent.config.llm, 'model')
     
-    print(f"MCP Agent initialized with model: {real_mcp_agent.config['llm']['model']}")
+    print(f"MCP Agent initialized with model: {real_mcp_agent.config.llm.model}")
 
 
 @pytest.mark.smoke
