@@ -297,78 +297,104 @@ class TaskExecutor:
         if self.verbose:
             self.logger.info(f"[DEBUG] execute_tool_with_retry が呼び出されました: tool={tool}")
         
+        # ErrorHandlerの試行履歴をリセット（新しいタスク開始時）
+        if self.error_handler:
+            self.error_handler.attempt_history = []
+        
+        # 実行コンテキストを取得（過去の実行結果）
+        execution_context = []
+        if self.state_manager:
+            try:
+                completed_tasks = self.state_manager.get_completed_tasks()
+                # 最新の5個のタスク結果を取得（汎用的）
+                for task in completed_tasks[-5:]:
+                    if task.result:  # 結果がある場合のみ
+                        execution_context.append({
+                            "tool": task.tool,
+                            "description": task.description,
+                            "result": task.result
+                        })
+            except Exception as e:
+                if self.verbose:
+                    print(f"[DEBUG] 実行コンテキスト取得エラー: {e}")
+        
         max_retries = self.config.execution.max_retries
         original_params = params.copy()
         current_params = params.copy()
         current_user_query = getattr(self, 'current_user_query', '')
         
         for attempt in range(max_retries + 1):
+            # 1. ツール実行（例外をキャッチして結果として扱う）
             try:
-                # ツール実行
                 raw_result = await self.connection_manager.call_tool(tool, current_params)
-                
+                is_exception = False
                 if self.verbose:
                     self.logger.info(f"[DEBUG] ツール実行成功 attempt={attempt + 1}")
-                
-                # 成功時のログ
-                if attempt > 0 and self.verbose:
-                    print(f"  [成功] {attempt}回目のリトライで成功しました")
-                
-                return raw_result
-                
             except Exception as e:
-                # エラーを結果として扱う
                 raw_result = f"ツールエラー: {e}"
+                is_exception = True
                 error_msg = safe_str(str(e))
-                
                 if self.verbose:
                     print(f"  [エラー] {error_msg}")
-                
-                # ErrorHandlerとLLMが利用可能な場合はLLM判断を実行
-                if self.error_handler and self.llm:
-                    try:
-                        if self.verbose:
-                            print(f"  [分析] LLM判断を開始...")
+            
+            # 2. LLM判断を常に実行（ErrorHandlerが利用可能な場合）
+            if self.error_handler and self.llm:
+                try:
+                    if self.verbose:
+                        print(f"  [分析] LLM判断を開始...")
+                    
+                    # すべての結果をLLMに判断させる（元の設計思想）
+                    judgment = await self.error_handler.judge_and_process_result(
+                        tool=tool,
+                        current_params=current_params,
+                        original_params=original_params,
+                        result=raw_result,
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        description=description,
+                        current_user_query=current_user_query,
+                        execution_context=execution_context
+                    )
+                    
+                    # 3. LLMの判断に基づいて行動
+                    if judgment.get("needs_retry", False) and attempt < max_retries:
+                        print(f"  [LLM判断] リトライ必要: {judgment.get('error_reason', 'LLM判断によるリトライ')}")
                         
-                        judgment = await self.error_handler.judge_and_process_result(
-                            tool=tool,
-                            current_params=current_params,
-                            original_params=original_params,
-                            result=raw_result,
-                            attempt=attempt + 1,
-                            max_retries=max_retries,
-                            description=description,
-                            current_user_query=current_user_query
-                        )
+                        corrected_params = judgment.get("corrected_params", current_params)
+                        if corrected_params != current_params:
+                            print(f"  [修正] パラメータを修正: {safe_str(corrected_params)}")
+                            current_params = corrected_params
                         
-                        # リトライが必要かつまだ試行回数が残っている場合
-                        if judgment.get("needs_retry", False) and attempt < max_retries:
-                            print(f"  [LLM判断] リトライ必要: {judgment.get('error_reason', 'LLM判断によるリトライ')}")
-                            
-                            corrected_params = judgment.get("corrected_params", current_params)
-                            if corrected_params != current_params:
-                                print(f"  [修正] パラメータを修正: {safe_str(corrected_params)}")
-                                current_params = corrected_params
-                            
-                            continue
-                        else:
-                            # 成功またはリトライ不要と判断された場合
-                            if self.verbose:
-                                print(f"  [LLM判断] 処理完了")
-                            return judgment.get("processed_result", raw_result)
-                            
-                    except Exception as llm_error:
+                        continue
+                    else:
+                        # 成功またはリトライ不要と判断
                         if self.verbose:
-                            print(f"  [LLM判断エラー] {safe_str(str(llm_error))}")
-                        # LLM判断でエラーの場合は従来のリトライに戻る
-                
-                # ErrorHandlerがない場合または最後の試行の場合
+                            print(f"  [LLM判断] 処理完了")
+                        if attempt > 0 and not is_exception:
+                            print(f"  [成功] {attempt}回目のリトライで成功しました")
+                        return judgment.get("processed_result", raw_result)
+                        
+                except Exception as llm_error:
+                    if self.verbose:
+                        print(f"  [LLM判断エラー] {safe_str(str(llm_error))}")
+                    # LLM判断でエラーの場合は結果をそのまま返すか例外処理
+                    if not is_exception:
+                        return raw_result
+            else:
+                # ErrorHandlerがない場合の処理
+                if not is_exception:
+                    # 成功時のログ
+                    if attempt > 0 and self.verbose:
+                        print(f"  [成功] {attempt}回目のリトライで成功しました")
+                    return raw_result
+            
+            # ErrorHandlerなしで例外が発生した場合の従来のリトライ処理
+            if is_exception:
                 if attempt >= max_retries:
                     if self.verbose:
                         print(f"  [失敗] 最大リトライ回数({max_retries})に到達")
-                    raise e
+                    raise Exception(raw_result)
                 
-                # 従来の単純リトライ
                 if self.verbose:
                     print(f"  [リトライ] {attempt + 1}/{max_retries}")
                 

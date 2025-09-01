@@ -138,11 +138,10 @@ CLARIFICATIONの場合（不明な情報がある場合）：
             custom_section = custom_instructions
             max_tasks_note = "必要最小限のタスクで構成し、効率的な実行計画を作成してください。"
             database_rules = """
-## データベース操作の必須ルール（重要）
-データベース関連の要求は必ず以下の3ステップ：
-1. list_tables - テーブル一覧確認
-2. get_table_schema - 対象テーブルのスキーマ確認  
-3. execute_safe_query - 実際のクエリ実行
+## データベース操作の最適化ルール（重要）
+データベース関連の要求は効率的な2ステップ：
+1. list_tables - テーブル一覧とスキーマ確認（十分な構造情報を含む）
+2. execute_safe_query - 実際のクエリ実行
 
 ## データベース表示ルール
 - 「一覧」「全件」「すべて」→ LIMIT 20（適度な件数）
@@ -150,11 +149,10 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 「全部」「制限なし」→ LIMIT 50（最大）
 - 「1つ」「最高」「最安」→ LIMIT 1
 
-例：「データベースのテーブル一覧を表示して」
+例：「売上が高い順に商品を表示して」
 → [
-  {{"tool": "list_tables", "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブル構造を確認"}},
-  {{"tool": "execute_safe_query", "params": {{"query": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを20件表示"}}
+  {{"tool": "list_tables", "description": "テーブル一覧とスキーマ確認"}},
+  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT p.name, SUM(s.total_amount) as sales FROM products p JOIN sales s ON p.id = s.product_id GROUP BY p.name ORDER BY sales DESC LIMIT 20"}}, "description": "売上順に商品表示"}}
 ]
 """
         else:
@@ -259,9 +257,9 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 - 都市名は適切な国コードと組み合わせて使用してください
 
 ## データベース操作時の重要事項
-- 「データを表示」「一覧を見る」→ execute_safe_query でSELECT文を実行
-- 「構造を確認」「スキーマを見る」→ get_table_schema を使用
-- データ表示は必ず execute_safe_query が必要です
+- 「データを表示」「一覧を見る」→ まず list_tables でスキーマ確認、次に execute_safe_query でSELECT文を実行
+- 「構造を確認」「スキーマを見る」→ list_tables で十分（詳細な構造情報を含む）
+- データ表示は必ず2ステップ：list_tables → execute_safe_query
 
 ## タスク依存関係の表現
 前のタスクの結果を使用する場合は、自然な表現で記述してください：
@@ -272,16 +270,16 @@ CLARIFICATIONの場合（不明な情報がある場合）：
 例：「データベースのデータ一覧を表示」
 ```json
 {{"tasks": [
-  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM table1 LIMIT 20"}}, "description": "データを取得して表示"}}
+  {{"tool": "list_tables", "params": {{}}, "description": "テーブル一覧とスキーマ確認"}},
+  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを取得して表示"}}
 ]}}
 ```
 
 例：「データベーステーブルを詳しく調査してデータを表示」
 ```json
 {{"tasks": [
-  {{"tool": "list_tables", "params": {{}}, "description": "テーブル一覧を確認"}},
-  {{"tool": "get_table_schema", "params": {{"table_name": "table1"}}, "description": "テーブルの構造を確認"}},
-  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM table1"}}, "description": "データを取得して表示"}}
+  {{"tool": "list_tables", "params": {{}}, "description": "テーブル一覧とスキーマ確認"}},
+  {{"tool": "execute_safe_query", "params": {{"sql": "SELECT * FROM products LIMIT 20"}}, "description": "商品データを取得して表示"}}
 ]}}
 ```
 

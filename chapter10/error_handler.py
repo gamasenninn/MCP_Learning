@@ -13,6 +13,7 @@ Error Handler for MCP Agent
 import asyncio
 import json
 import re
+import time
 from typing import Dict, Any, Optional, Callable, List, Union
 from openai import AsyncOpenAI
 
@@ -68,6 +69,9 @@ class ErrorHandler:
             "auto_fixed": 0,
             "retry_success": 0
         }
+        
+        # 試行履歴（無限ループ防止用）
+        self.attempt_history = []
     
     def classify_error(self, error_msg: str) -> str:
         """
@@ -317,7 +321,8 @@ class ErrorHandler:
         attempt: int,
         max_retries: int,
         description: str,
-        current_user_query: str = None
+        current_user_query: str = None,
+        execution_context: List[Dict] = None
     ) -> str:
         """LLM判断用プロンプトの生成"""
         # 結果を安全な文字列に変換
@@ -328,6 +333,43 @@ class ErrorHandler:
         # ユーザークエリを決定
         if current_user_query is None:
             current_user_query = self.current_user_query or "（不明）"
+        
+        # 実行履歴の構築
+        execution_history_str = ""
+        if execution_context and len(execution_context) > 0:
+            history_lines = []
+            for i, ctx in enumerate(execution_context, 1):
+                tool_name = ctx.get("tool", "不明")
+                desc = ctx.get("description", "")
+                result = ctx.get("result", "")
+                # 結果を短縮（200文字以内）
+                short_result = safe_str(result)[:200]
+                if len(str(result)) > 200:
+                    short_result += "..."
+                history_lines.append(f"{i}. ツール: {tool_name} | 説明: {desc} | 結果: {short_result}")
+            execution_history_str = "\n".join(history_lines)
+        else:
+            execution_history_str = "関連する実行履歴はありません"
+        
+        # 試行履歴の構築（無限ループ防止用）
+        attempt_history_str = ""
+        if self.attempt_history and len(self.attempt_history) > 0:
+            attempt_lines = []
+            for i, attempt_info in enumerate(self.attempt_history, 1):
+                attempt_num = attempt_info.get("attempt", i)
+                params = attempt_info.get("params", {})
+                result = attempt_info.get("result", "")
+                # パラメータと結果を短縮
+                short_params = safe_str(params)[:150]
+                short_result = safe_str(result)[:100]
+                if len(str(params)) > 150:
+                    short_params += "..."
+                if len(str(result)) > 100:
+                    short_result += "..."
+                attempt_lines.append(f"試行{attempt_num}: パラメータ={short_params} → 結果={short_result}")
+            attempt_history_str = "\n".join(attempt_lines)
+        else:
+            attempt_history_str = "過去の試行履歴はありません"
         
         return f"""あなたはツール実行結果を判断するエキスパートです。以下の実行結果を分析してください。
 
@@ -341,18 +383,38 @@ class ErrorHandler:
 - 試行回数: {attempt}/{max_retries + 1}
 - ユーザーの要求: {current_user_query}
 
+## 関連する実行履歴
+{execution_history_str}
+
+## 過去の試行履歴（このタスクの）
+{attempt_history_str}
+
 ## 実行結果
 {result_str}
 
 ## 判断基準
-1. **成功判定**: 期待される結果が得られている
-2. **失敗判定**: エラーメッセージ、構文エラー、実行エラーが含まれている
+1. **成功判定**: 
+   - 有効なデータが含まれている（空でない結果）
+   - エラーメッセージが含まれていない
+   - 期待される形式の結果が得られている
+
+2. **失敗判定**:
+   - 結果が空文字列（""）、空配列（[]）、または"{{}}"
+   - エラーメッセージ、構文エラー、実行エラーが含まれている
+   - "no such column", "no such table"などのデータベースエラー
+   - 予期しない空の応答や無効な形式
+
 3. **リトライ判定**: パラメータを修正すれば成功する可能性がある
+   - データベースクエリ: カラム名・テーブル名の修正（例: product_name → name）
+   - API呼び出し: パラメータ形式の修正（例: 都市名に国コード追加）
+   - コード実行: 構文エラーの修正
 
 ## **重要**: パラメータ修正時のルール
 - **現在実行中のタスクの目的を必ず尊重してください**
 - 修正は元のパラメータ（{original_params_str}）を基準に行ってください
 - 他のタスクのパラメータに変更してはいけません
+- **無限ループ防止**: 過去の試行履歴で既に試したパラメータは避けてください
+- 同じエラーパターンが繰り返される場合は、根本的に異なるアプローチを提案してください
 - 例：都市名に国コードを追加（例："Tokyo" → "Tokyo, JP"）
 
 ## 出力形式（JSON）
@@ -369,7 +431,18 @@ class ErrorHandler:
 - 構文エラー → コードを正しい構文に修正
 - 都市名エラー → 国コード付きに修正
 - 日本語パラメータ → 英語に変換
-- セミコロン記法 → 複数行に分解"""
+- セミコロン記法 → 複数行に分解
+- データベースクエリの空の結果 → テーブル構造を確認してクエリを修正
+- 存在しないカラム名 → 実際のカラム名に置換（例: product_name → name）
+
+## データベースクエリのヒント（該当する場合のみ）
+- 存在しないカラムエラーの場合、テーブル間の関係を確認
+- 集計データが必要な場合、適切なJOINを検討
+
+## 基本的なJOIN構文例
+- 基本JOIN: `SELECT a.col, b.col FROM table1 a JOIN table2 b ON a.id = b.foreign_id`
+- 集計JOIN: `SELECT a.name, SUM(b.amount) FROM table1 a JOIN table2 b ON a.id = b.foreign_id GROUP BY a.name`
+- ソート: `ORDER BY SUM(b.amount) DESC`"""
     
     def _get_llm_params(self, **kwargs) -> Dict:
         """モデルに応じたパラメータを生成"""
@@ -432,7 +505,8 @@ class ErrorHandler:
         attempt: int = 1,
         max_retries: int = 3,
         description: str = "",
-        current_user_query: str = "（不明）"
+        current_user_query: str = "（不明）",
+        execution_context: List[Dict] = None
     ) -> Dict[str, Any]:
         """
         LLMによるツール実行結果の判断と処理
@@ -450,6 +524,18 @@ class ErrorHandler:
         Returns:
             判断結果辞書
         """
+        # 試行履歴に現在のパラメータを記録
+        self.attempt_history.append({
+            "attempt": attempt,
+            "params": current_params.copy(),
+            "result": safe_str(result),
+            "timestamp": time.time()
+        })
+        
+        # 最新3回分のみ保持（プロンプト肥大化を防ぐ）
+        if len(self.attempt_history) > 3:
+            self.attempt_history = self.attempt_history[-3:]
+        
         # プロンプト生成
         prompt = self.build_judgment_prompt(
             tool=tool,
@@ -459,7 +545,8 @@ class ErrorHandler:
             attempt=attempt,
             max_retries=max_retries,
             description=description,
-            current_user_query=current_user_query
+            current_user_query=current_user_query,
+            execution_context=execution_context
         )
         
         # LLM呼び出し

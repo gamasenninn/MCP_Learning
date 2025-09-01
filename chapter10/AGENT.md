@@ -27,10 +27,10 @@
 
 ## 実行パターン
 
-### データベース（3ステップ必須）
+### データベース（2ステップ必須）
 ```
 「商品データを表示」
-1. list_tables → 2. get_table_schema(products) → 3. execute_safe_query
+1. list_tables → 2. execute_safe_query
 ```
 
 ### ファイル操作
@@ -147,9 +147,6 @@ ESCキー → 作業一時停止 → .mcp_agent/に保存
 ```
 
 ## プロジェクト固有設定
-
-### 利用可能テーブル
-- `products`（商品）、`sales`（売上）、`customers`（顧客）
 
 ### カスタマイズ例
 ```markdown
