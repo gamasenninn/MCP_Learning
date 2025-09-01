@@ -16,6 +16,7 @@ from mcp_agent import MCPAgent
 from state_manager import StateManager, TaskState
 from task_manager import TaskManager
 from conversation_manager import ConversationManager
+from config_manager import Config, ConversationConfig
 
 
 @pytest.mark.integration
@@ -77,9 +78,12 @@ async def test_final_response_logged():
         await state_manager.initialize_session()
         
         # ConversationManagerの初期化
-        mock_config = {
-            "conversation": {"context_limit": 10, "max_history": 50}
-        }
+        mock_config = Config(
+            conversation=ConversationConfig(
+                context_limit=10,
+                max_history=50
+            )
+        )
         conversation_manager = ConversationManager(state_manager, mock_config)
         
         # 最終応答をシミュレート
@@ -123,9 +127,12 @@ async def test_complete_clarification_workflow():
         state_manager = StateManager(state_dir=str(state_dir))
         await state_manager.initialize_session()
         
-        mock_config = {
-            "conversation": {"context_limit": 10, "max_history": 50}
-        }
+        mock_config = Config(
+            conversation=ConversationConfig(
+                context_limit=10,
+                max_history=50
+            )
+        )
         conversation_manager = ConversationManager(state_manager, mock_config)
         mock_llm = AsyncMock()
         task_manager = TaskManager(state_manager, mock_llm)

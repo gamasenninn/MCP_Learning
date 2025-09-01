@@ -13,6 +13,7 @@ Conversation Manager for MCP Agent
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from state_manager import StateManager
+from config_manager import Config
 
 
 class ConversationManager:
@@ -23,7 +24,7 @@ class ConversationManager:
     会話の文脈処理に特化した機能を提供
     """
     
-    def __init__(self, state_manager: StateManager, config: Dict[str, Any]):
+    def __init__(self, state_manager: StateManager, config: Config):
         """
         Args:
             state_manager: 状態管理クラス（永続化を委譲）
@@ -56,7 +57,7 @@ class ConversationManager:
         self.conversation_history.append(history_item)
         
         # 履歴の長さ制限
-        max_history = self.config["conversation"]["max_history"]
+        max_history = self.config.conversation.max_history
         if len(self.conversation_history) > max_history:
             self.conversation_history = self.conversation_history[-max_history:]
     
@@ -75,7 +76,7 @@ class ConversationManager:
             フォーマットされた文脈文字列
         """
         if max_items is None:
-            max_items = self.config["conversation"]["context_limit"]
+            max_items = self.config.conversation.context_limit
         
         # StateManagerから会話履歴を取得
         conversation_context = self.state_manager.get_conversation_context(max_items)

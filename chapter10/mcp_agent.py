@@ -69,18 +69,17 @@ class MCPAgent:
         self.llm = AsyncOpenAI()
         self.connection_manager = ConnectionManager()
         
-        # ErrorHandlerは辞書形式の設定を期待するため一時的に変換
-        config_dict = self._config_to_dict()
+        # ErrorHandlerにConfig型を直接渡す
         self.error_handler = ErrorHandler(
-            config=config_dict,
+            config=self.config,
             llm=self.llm,
             verbose=self.config.development.verbose
         )
         
         self.state_manager = StateManager()
         self.task_manager = TaskManager(self.state_manager, self.llm)
-        # ConversationManagerも辞書形式の設定を期待するため変換
-        self.conversation_manager = ConversationManager(self.state_manager, config_dict)
+        # ConversationManagerにConfig型を直接渡す
+        self.conversation_manager = ConversationManager(self.state_manager, self.config)
         
         # データ構造
         self.session_stats = {
@@ -128,14 +127,13 @@ class MCPAgent:
     
     def _initialize_task_executor(self):
         """TaskExecutorの初期化（全コンポーネント初期化後に実行）"""
-        config_dict = self._config_to_dict()
         self.task_executor = TaskExecutor(
             task_manager=self.task_manager,
             connection_manager=self.connection_manager,
             state_manager=self.state_manager,
             display_manager=self.display,
             llm=self.llm,
-            config=config_dict,
+            config=self.config,
             error_handler=self.error_handler,
             verbose=self.verbose
         )
@@ -148,9 +146,6 @@ class MCPAgent:
         """Rich UIの特定メソッドが利用可能か判定"""
         return self._is_rich_ui_enabled() and hasattr(self.display, method_name)
     
-    def _config_to_dict(self) -> Dict:
-        """互換性のためConfigオブジェクトを辞書に変換"""
-        return asdict(self.config)
     
     
     def _load_agent_md(self) -> str:

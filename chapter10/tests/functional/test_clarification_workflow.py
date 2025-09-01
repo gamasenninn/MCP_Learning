@@ -18,6 +18,7 @@ from state_manager import StateManager, TaskState
 from task_manager import TaskManager
 from conversation_manager import ConversationManager
 from connection_manager import ConnectionManager
+from config_manager import Config, ConversationConfig
 
 
 @pytest.fixture
@@ -87,9 +88,12 @@ async def test_end_to_end_clarification_logging():
         await state_manager.initialize_session()
         
         # ConversationManager、TaskManagerを初期化
-        mock_config = {
-            "conversation": {"context_limit": 10, "max_history": 50}
-        }
+        mock_config = Config(
+            conversation=ConversationConfig(
+                context_limit=10,
+                max_history=50
+            )
+        )
         conversation_manager = ConversationManager(state_manager, mock_config)
         
         mock_llm = AsyncMock()
@@ -223,9 +227,12 @@ async def test_skip_command_workflow():
         state_manager = StateManager(state_dir=str(state_dir))
         await state_manager.initialize_session()
         
-        mock_config = {
-            "conversation": {"context_limit": 10, "max_history": 50}
-        }
+        mock_config = Config(
+            conversation=ConversationConfig(
+                context_limit=10,
+                max_history=50
+            )
+        )
         conversation_manager = ConversationManager(state_manager, mock_config)
         mock_llm = AsyncMock()
         task_manager = TaskManager(state_manager, mock_llm)
@@ -296,9 +303,12 @@ async def test_conversation_manager_state_manager_sync():
         state_manager = StateManager(state_dir=str(state_dir))
         await state_manager.initialize_session()
         
-        mock_config = {
-            "conversation": {"context_limit": 10, "max_history": 50}
-        }
+        mock_config = Config(
+            conversation=ConversationConfig(
+                context_limit=10,
+                max_history=50
+            )
+        )
         conversation_manager = ConversationManager(state_manager, mock_config)
         
         # ConversationManagerに複数のエントリを追加

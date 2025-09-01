@@ -14,10 +14,9 @@ import asyncio
 import json
 import re
 from typing import Dict, Any, Optional, Callable, List, Union
-from dataclasses import asdict
 from openai import AsyncOpenAI
 
-
+from config_manager import Config
 from utils import safe_str, Logger
 
 
@@ -47,18 +46,14 @@ class ErrorHandler:
         }
     }
     
-    def __init__(self, config: Union[Dict, Any], llm: Optional[AsyncOpenAI] = None, verbose: bool = True):
+    def __init__(self, config: Config, llm: Optional[AsyncOpenAI] = None, verbose: bool = True):
         """
         Args:
             config: 設定辞書またはConfigオブジェクト
             llm: OpenAI LLMクライアント（パラメータ修正用）
             verbose: 詳細ログ出力
         """
-        # Configオブジェクトの場合は辞書に変換
-        if hasattr(config, '__dataclass_fields__'):  # dataclassの場合
-            self.config = asdict(config)
-        else:
-            self.config = config
+        self.config = config
         self.llm = llm
         self.verbose = verbose
         self.logger = Logger(verbose=verbose)
@@ -152,7 +147,7 @@ class ErrorHandler:
 ```"""
 
             response = await self.llm.chat.completions.create(
-                model=self.config["llm"]["model"],
+                model=self.config.llm.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1  # 低温度で安定した修正
             )
@@ -201,7 +196,7 @@ class ErrorHandler:
         Raises:
             Exception: 全てのリトライに失敗した場合
         """
-        max_retries = self.config.get("execution", {}).get("max_retries", 3)
+        max_retries = self.config.execution.max_retries
         original_params = params.copy()  # 元のパラメータを保持
         
         for attempt in range(max_retries + 1):
@@ -244,7 +239,7 @@ class ErrorHandler:
                 # エラータイプに応じた処理
                 if error_type == "PARAM_ERROR":
                     # パラメータエラーの場合、LLMで修正を試みる
-                    if self.config.get("error_handling", {}).get("auto_correct_params", True):
+                    if self.config.error_handling.auto_correct_params:
                         if self.verbose:
                             print(f"  [分析] パラメータエラーを検出 - LLMで修正を試みます")
                         
@@ -279,7 +274,7 @@ class ErrorHandler:
                     # 一時的エラーの場合は通常のリトライ
                     if self.verbose:
                         print(f"  [リトライ] 一時的エラー - {attempt + 1}/{max_retries}")
-                    retry_interval = self.config.get("error_handling", {}).get("retry_interval", 1.0)
+                    retry_interval = self.config.error_handling.retry_interval
                     await asyncio.sleep(retry_interval)
                 
                 else:
@@ -378,13 +373,13 @@ class ErrorHandler:
     
     def _get_llm_params(self, **kwargs) -> Dict:
         """モデルに応じたパラメータを生成"""
-        model = self.config["llm"]["model"]
+        model = self.config.llm.model
         params = {"model": model, **kwargs}
         
         if model.startswith("gpt-5"):
             # GPT-5系の設定
-            params["max_completion_tokens"] = self.config["llm"].get("max_completion_tokens", 5000)
-            params["reasoning_effort"] = self.config["llm"].get("reasoning_effort", "minimal")
+            params["max_completion_tokens"] = self.config.llm.max_completion_tokens
+            params["reasoning_effort"] = self.config.llm.reasoning_effort
             
             # GPT-5系はtemperature=1のみサポート
             if "temperature" in params:

@@ -14,7 +14,6 @@ import json
 import re
 import time
 from typing import Dict, List, Any, Optional, Union
-from dataclasses import asdict
 from openai import AsyncOpenAI
 
 from state_manager import TaskState, StateManager
@@ -22,6 +21,7 @@ from task_manager import TaskManager
 from connection_manager import ConnectionManager
 from display_manager import DisplayManager
 from error_handler import ErrorHandler
+from config_manager import Config
 from utils import safe_str, Logger
 
 
@@ -39,7 +39,7 @@ class TaskExecutor:
                  state_manager: StateManager,
                  display_manager: DisplayManager,
                  llm: AsyncOpenAI,
-                 config: Union[Dict[str, Any], Any],
+                 config: Config,
                  error_handler: ErrorHandler = None,
                  verbose: bool = True):
         """
@@ -58,11 +58,7 @@ class TaskExecutor:
         self.state_manager = state_manager
         self.display = display_manager
         self.llm = llm
-        # Configオブジェクトの場合は辞書に変換
-        if hasattr(config, '__dataclass_fields__'):  # dataclassの場合
-            self.config = asdict(config)
-        else:
-            self.config = config
+        self.config = config
         self.error_handler = error_handler
         self.verbose = verbose
         self.logger = Logger(verbose=verbose)
@@ -301,7 +297,7 @@ class TaskExecutor:
         if self.verbose:
             self.logger.info(f"[DEBUG] execute_tool_with_retry が呼び出されました: tool={tool}")
         
-        max_retries = self.config.get("execution", {}).get("max_retries", 3)
+        max_retries = self.config.execution.max_retries
         original_params = params.copy()
         current_params = params.copy()
         current_user_query = getattr(self, 'current_user_query', '')
@@ -391,13 +387,13 @@ class TaskExecutor:
         Returns:
             調整済みパラメータ辞書
         """
-        model = self.config["llm"]["model"]
+        model = self.config.llm.model
         params = {"model": model, **kwargs}
         
         if model.startswith("gpt-5"):
             # GPT-5系の設定
-            params["max_completion_tokens"] = self.config["llm"].get("max_completion_tokens", 5000)
-            params["reasoning_effort"] = self.config["llm"].get("reasoning_effort", "minimal")
+            params["max_completion_tokens"] = self.config.llm.max_completion_tokens
+            params["reasoning_effort"] = self.config.llm.reasoning_effort
             
             # GPT-5系はtemperature=1のみサポート
             if "temperature" in params:
