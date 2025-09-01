@@ -65,8 +65,9 @@ async def test_real_complex_reasoning(real_mcp_agent, skip_expensive):
 async def test_gpt5_advanced_reasoning(real_mcp_agent, skip_expensive):
     """GPT-5の高度な推論能力をテスト（最も高額なテスト）"""
     # GPT-5モデルが設定されているか確認
-    if real_mcp_agent.config.get("llm", {}).get("model") not in ["o1", "o1-mini", "gpt-5"]:
-        pytest.skip("GPT-5/o1 model required for this test")
+    model = real_mcp_agent.config.llm.model.lower()
+    if not (model.startswith("gpt-4") or model.startswith("gpt-5")):
+        pytest.skip("GPT-4* or GPT-5* model required for this test")
     
     # 高度な推論を要する計算
     result = await real_mcp_agent.process_request(
