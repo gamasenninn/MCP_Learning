@@ -95,7 +95,11 @@ class Logger:
         """統一ログ出力メソッド"""
         if self.verbose:
             level_name = self.LEVELS.get(level, level.upper())
-            print(f"[{level_name}] {message}")
+            level_priority = self.LEVEL_PRIORITY.get(level_name, 0)
+            
+            # ログレベルフィルタリング: 指定レベル以上のメッセージのみ出力
+            if level_priority >= self.min_priority:
+                print(f"[{level_name}] {message}")
     
     def debug(self, message: str):
         """デバッグメッセージ"""

@@ -21,14 +21,16 @@ from utils import safe_str
 class DisplayManager:
     """視覚的フィードバックを管理するクラス"""
     
-    def __init__(self, show_timing: bool = True, show_thinking: bool = False):
+    def __init__(self, show_timing: bool = True, show_thinking: bool = False, logger=None):
         """
         Args:
             show_timing: 実行時間を表示するかどうか
             show_thinking: 思考過程を表示するかどうか（show_tool_call内で使用）
+            logger: ログ出力用のLoggerインスタンス（Noneの場合は直接print）
         """
         self.show_timing = show_timing
         self.show_thinking = show_thinking
+        self.logger = logger
         self.start_time = time.time()
     
     def show_banner(self):
@@ -41,7 +43,10 @@ class DisplayManager:
     
     def show_analysis(self, message: str):
         """分析中のメッセージを表示"""
-        print(f"[分析] {message}")
+        if self.logger:
+            self.logger.info(f"[分析] {message}")
+        else:
+            print(f"[分析] {message}")
     
     def show_task_list(self, tasks: List[Dict], current_index: int = -1, 
                        completed: List[int] = None, failed: List[int] = None,

@@ -73,7 +73,7 @@ error_handling:
 # 開発設定
 development:
   # 詳細なデバッグ情報を表示
-  verbose: true
+  verbose: false
   
   # ログレベル設定 (DEBUG/INFO/WARNING/ERROR)
   # DEBUG: 詳細デバッグ情報を含む全ログ

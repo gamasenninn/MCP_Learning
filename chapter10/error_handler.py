@@ -245,7 +245,7 @@ class ErrorHandler:
                     # パラメータエラーの場合、LLMで修正を試みる
                     if self.config.error_handling.auto_correct_params:
                         if self.verbose:
-                            print(f"  [分析] パラメータエラーを検出 - LLMで修正を試みます")
+                            self.logger.info(f"  [分析] パラメータエラーを検出 - LLMで修正を試みます")
                         
                         if tools_info_func:
                             tools_info = tools_info_func()

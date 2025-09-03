@@ -425,5 +425,10 @@ if not RICH_AVAILABLE:
     class RichDisplayManager(DisplayManager):
         """Rich未インストール時のフォールバック"""
         def __init__(self, *args, **kwargs):
-            print("[WARNING] Rich library not available. Using basic display.")
+            # loggerが渡されていればwarning使用、なければprint
+            logger = kwargs.get('logger')
+            if logger:
+                logger.warning("Rich library not available. Using basic display.")
+            else:
+                print("[WARNING] Rich library not available. Using basic display.")
             super().__init__(*args, **kwargs)
