@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-from utils import setup_windows_encoding
+from utils import setup_windows_encoding, safe_str
 
 # Windows環境設定
 setup_windows_encoding()
@@ -182,33 +182,13 @@ class ConnectionManager:
             if hasattr(result, 'content') and hasattr(result.content, '__iter__'):
                 for content_item in result.content:
                     if hasattr(content_item, 'text') and isinstance(content_item.text, str):
-                        # サロゲート文字をクリーンアップ
-                        surrogate_count = sum(1 for char in content_item.text if 0xD800 <= ord(char) <= 0xDFFF)
-                        if surrogate_count > 0:
-                            clean_text = ''.join(
-                                char if not (0xD800 <= ord(char) <= 0xDFFF) else '?'
-                                for char in content_item.text
-                            )
-                            content_item.text = clean_text
+                        # safe_strを使用してサロゲート文字をクリーンアップ
+                        content_item.text = safe_str(content_item.text)
             
             return result
             
         except Exception as e:
-            error_msg = str(e)
-            # エラーメッセージも同様に処理（絵文字のみ置換）
-            if sys.platform == "win32":
-                try:
-                    error_msg.encode('cp932')
-                except UnicodeEncodeError:
-                    # エンコードできない文字のみ置換
-                    safe_msg = []
-                    for char in error_msg:
-                        try:
-                            char.encode('cp932')
-                            safe_msg.append(char)
-                        except UnicodeEncodeError:
-                            safe_msg.append('?')
-                    error_msg = ''.join(safe_msg)
+            error_msg = safe_str(str(e))
             raise RuntimeError(f"ツール実行エラー ({tool_name}): {error_msg}")
     
     def get_available_tools(self) -> List[str]:
