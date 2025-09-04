@@ -116,7 +116,7 @@ class ErrorHandler:
         """
         if not self.llm:
             if self.verbose:
-                print("[修正] LLMが利用できないため自動修正をスキップ")
+                self.logger.ulog("LLMが利用できないため自動修正をスキップ", "info:correction")
             return None
         
         try:
@@ -165,17 +165,17 @@ class ErrorHandler:
                 if result.get("修正成功"):
                     self.error_stats["auto_fixed"] += 1
                     if self.verbose:
-                        print(f"[修正成功] パラメータを自動修正: {result.get('params')}")
+                        self.logger.ulog(f"パラメータを自動修正: {result.get('params')}", "info:correction")
                     return result.get("params")
             
             if self.verbose:
-                print(f"[修正失敗] LLM応答の解析に失敗: {response_text[:100]}...")
+                self.logger.ulog(f"LLM応答の解析に失敗: {response_text[:100]}...", "error:correction")
             
             return None
             
         except Exception as e:
             if self.verbose:
-                print(f"[修正エラー] パラメータ修正に失敗: {e}")
+                self.logger.ulog(f"パラメータ修正に失敗: {e}", "error:correction")
             return None
     
     async def execute_with_retry(
@@ -211,17 +211,17 @@ class ErrorHandler:
                 if isinstance(result, str):
                     surrogate_count = sum(1 for char in result if 0xD800 <= ord(char) <= 0xDFFF)
                     if surrogate_count > 0:
-                        print(f"[error_handler] Found {surrogate_count} surrogate characters in result")
+                        self.logger.ulog(f"Found {surrogate_count} surrogate characters in result", "info:correction")
                         for i, char in enumerate(result):
                             if 0xD800 <= ord(char) <= 0xDFFF:
-                                print(f"[error_handler] First surrogate at position {i}: {repr(char)} (U+{ord(char):04X})")
+                                self.logger.ulog(f"First surrogate at position {i}: {repr(char)} (U+{ord(char):04X})", "info:correction")
                                 break
                 
                 # 成功時のログ
                 if attempt > 0:
                     self.error_stats["retry_success"] += 1
                     if self.verbose:
-                        print(f"  [成功] {attempt}回目のリトライで成功しました")
+                        self.logger.ulog(f"{attempt}回目のリトライで成功しました", "info:success")
                 
                 return result
                 
@@ -232,20 +232,19 @@ class ErrorHandler:
                 error_type = self.classify_error(error_msg)
                 
                 if self.verbose:
-                    print(f"  [エラー分類] {error_type}: {error_msg}")
+                    self.logger.ulog(f"{error_type}: {error_msg}", "info:classification")
                 
                 # 最後の試行の場合は例外を投げる
                 if attempt >= max_retries:
                     if self.verbose:
-                        print(f"  [失敗] 最大リトライ回数({max_retries})に到達")
+                        self.logger.ulog(f"最大リトライ回数({max_retries})に到達", "error:failed")
                     raise e
                 
                 # エラータイプに応じた処理
                 if error_type == "PARAM_ERROR":
                     # パラメータエラーの場合、LLMで修正を試みる
                     if self.config.error_handling.auto_correct_params:
-                        if self.verbose:
-                            self.logger.info(f"  [分析] パラメータエラーを検出 - LLMで修正を試みます")
+                        self.logger.ulog("パラメータエラーを検出 - LLMで修正を試みます", "info:analysis", show_level=True)
                         
                         if tools_info_func:
                             tools_info = tools_info_func()
@@ -257,18 +256,18 @@ class ErrorHandler:
                                 params = corrected_params
                                 if self.verbose:
                                     safe_params = safe_str(str(params))
-                                    print(f"  [修正] パラメータを修正しました: {safe_params}")
+                                    self.logger.ulog(f"パラメータを修正しました: {safe_params}", "info:correction")
                                 # パラメータ修正後は残り試行回数を制限（無限ループ防止）
                                 max_retries = min(max_retries, attempt + 2)
                             else:
                                 if self.verbose:
-                                    print(f"  [修正失敗] パラメータの自動修正に失敗")
+                                    self.logger.ulog("パラメータの自動修正に失敗", "error:correction")
                                 # 修正できない場合は即座に失敗
                                 raise e
                         else:
                             # ツール情報が取得できない場合は即座に失敗
                             if self.verbose:
-                                print(f"  [修正失敗] ツール情報が取得できないため修正不可")
+                                self.logger.ulog("ツール情報が取得できないため修正不可", "error:correction")
                             raise e
                     else:
                         # 自動修正が無効の場合は即座に失敗
@@ -277,14 +276,14 @@ class ErrorHandler:
                 elif error_type == "TRANSIENT_ERROR":
                     # 一時的エラーの場合は通常のリトライ
                     if self.verbose:
-                        print(f"  [リトライ] 一時的エラー - {attempt + 1}/{max_retries}")
+                        self.logger.ulog(f"一時的エラー - {attempt + 1}/{max_retries}", "info:retry")
                     retry_interval = self.config.error_handling.retry_interval
                     await asyncio.sleep(retry_interval)
                 
                 else:
                     # 不明なエラーの場合は短時間リトライ
                     if self.verbose:
-                        print(f"  [リトライ] 不明なエラー - {attempt + 1}/{max_retries}")
+                        self.logger.ulog(f"不明なエラー - {attempt + 1}/{max_retries}", "info:retry")
                     await asyncio.sleep(0.5)
     
     def log_error(self, context: str, error: Exception, level: str = "ERROR"):
@@ -297,7 +296,7 @@ class ErrorHandler:
             level: ログレベル
         """
         if self.verbose:
-            print(f"[{level}] {context}: {str(error)}")
+            self.logger.ulog(f"{context}: {str(error)}", f"{level}:error")
     
     def get_error_statistics(self) -> Dict[str, Any]:
         """エラー統計情報を取得"""
@@ -471,12 +470,12 @@ class ErrorHandler:
             response = await self.llm.chat.completions.create(**params)
             
             raw_response = response.choices[0].message.content
-            self.logger.debug(f"[LLM生レスポンス] {safe_str(raw_response)[:500]}")
+            self.logger.ulog(f"{safe_str(raw_response)[:500]}", "debug:llm_response", show_level=True)
             
             return json.loads(raw_response)
             
         except Exception as e:
-            self.logger.error(f"[LLM判断エラー] {e}")
+            self.logger.ulog(f"{e}", "error:llm_error", show_level=True)
             # フォールバック: 成功として扱う
             return {
                 "is_success": True,
@@ -487,14 +486,14 @@ class ErrorHandler:
     
     def log_judgment_result(self, judgment: Dict):
         """判断結果の詳細ログ出力"""
-        self.logger.info(f"[LLM判断] 成功: {judgment.get('is_success')}, リトライ必要: {judgment.get('needs_retry')}")
+        self.logger.ulog(f"成功: {judgment.get('is_success')}, リトライ必要: {judgment.get('needs_retry')}", "info:llm_judgment", show_level=True)
         
         if judgment.get('needs_retry'):
-            self.logger.info(f"[LLM理由] {judgment.get('error_reason', '不明')}")
+            self.logger.ulog(f"{judgment.get('error_reason', '不明')}", "info:llm_reason", show_level=True)
             if judgment.get('corrected_params'):
-                self.logger.info(f"[LLM修正案] {safe_str(judgment.get('corrected_params'))[:200]}")
+                self.logger.ulog(f"{safe_str(judgment.get('corrected_params'))[:200]}", "info:llm_correction", show_level=True)
         else:
-            self.logger.info(f"[LLM判断理由] リトライ不要 - {judgment.get('summary', '詳細不明')}")
+            self.logger.ulog(f"リトライ不要 - {judgment.get('summary', '詳細不明')}", "info:llm_judgment", show_level=True)
     
     async def judge_and_process_result(
         self, 

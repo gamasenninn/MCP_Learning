@@ -123,7 +123,7 @@ class Logger:
         priority = self.LEVEL_PRIORITY.get(level, 20)
         return priority >= self.min_priority
     
-    def ulog(self, message: str, level: str = "info", always_print: bool = False) -> None:
+    def ulog(self, message: str, level: str = "info", always_print: bool = False, show_level: bool = False) -> None:
         """
         統一ログ出力メソッド (unified log)
         
@@ -132,6 +132,7 @@ class Logger:
             level: ログレベル（形式: "loglevel" または "loglevel:prefix"）
                    例: "info", "error", "info:session", "warning:interrupt"
             always_print: Trueの場合、verbose設定に関わらず表示
+            show_level: Trueの場合、ログレベルプレフィックスも表示（例: [INFO] [分析]）
         """
         # ログレベルとプレフィックスの分離
         parts = level.split(':', 1)
@@ -160,9 +161,32 @@ class Logger:
                     "retry": "[リトライ]",
                     "config": "[設定]",
                     "instruction": "[指示書]",
+                    "connection": "[接続管理]",
+                    "init": "[初期化]",
+                    "collection": "[収集]",
+                    "correction": "[修正]",
+                    "success": "[成功]",
+                    "classification": "[分類]",
+                    "completed": "[完了]",
+                    "failed": "[失敗]",
+                    "param": "[パラメータ]",
+                    "analysis": "[分析]",
+                    "llm_response": "[LLM生レスポンス]",
+                    "llm_error": "[LLM判断エラー]",
+                    "llm_judgment": "[LLM判断]",
+                    "llm_reason": "[LLM理由]",
+                    "llm_correction": "[LLM修正案]",
                 }
                 prefix = prefixes.get(prefix_key, f"[{prefix_key.upper()}]")
-                print(f"{prefix} {message}")
+                if show_level:
+                    level_prefix = f"[{log_level.upper()}]"
+                    print(f"{level_prefix} {prefix} {message}")
+                else:
+                    print(f"{prefix} {message}")
             else:
-                print(message)
+                if show_level:
+                    level_prefix = f"[{log_level.upper()}]"
+                    print(f"{level_prefix} {message}")
+                else:
+                    print(message)
     

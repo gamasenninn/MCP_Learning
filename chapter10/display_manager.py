@@ -44,7 +44,7 @@ class DisplayManager:
     def show_analysis(self, message: str):
         """分析中のメッセージを表示"""
         if self.logger:
-            self.logger.info(f"[分析] {message}")
+            self.logger.ulog(f"{message}", "info:analysis", show_level=True)
         else:
             print(f"[分析] {message}")
     
@@ -128,7 +128,7 @@ class DisplayManager:
     def show_step_complete(self, description: str, duration: float, success: bool = True):
         """ステップ完了を表示"""
         status = "[完了]" if success else "[失敗]"
-        line = f"  {status} {description}"
+        line = f"{status} {description}"
         
         if self.show_timing:
             line += f" ({duration:.1f}秒)"
@@ -155,7 +155,7 @@ class DisplayManager:
     
     def show_retry(self, attempt: int, max_attempts: int, tool: str):
         """リトライ情報を表示"""
-        print(f"  [リトライ {attempt}/{max_attempts}] {tool} を再実行中...")
+        print(f"[リトライ {attempt}/{max_attempts}] {tool} を再実行中...")
     
     def show_context_info(self, context_items: int):
         """会話文脈情報を表示"""

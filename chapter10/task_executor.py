@@ -151,9 +151,9 @@ class TaskExecutor:
         
         # 完了状況の表示
         if completed:
-            print(f"\n[完了] {len(completed)}個のタスクが正常完了")
+            self.logger.ulog(f"\n{len(completed)}個のタスクが正常完了", "info:completed")
         if failed:
-            print(f"[失敗] {len(failed)}個のタスクでエラーが発生")
+            self.logger.ulog(f"{len(failed)}個のタスクでエラーが発生", "error:failed")
         
         return execution_context
     
@@ -253,8 +253,7 @@ class TaskExecutor:
                     resolved_params = result.get("resolved_params", params)
                     reasoning = result.get("reasoning", "")
                     
-                    if self.verbose:
-                        print(f"[パラメータ解決] {reasoning}")
+                    self.logger.ulog(f"{reasoning}", "info:param", show_level=True)
                     
                     return resolved_params
                 except json.JSONDecodeError:
@@ -266,20 +265,17 @@ class TaskExecutor:
                     resolved_params = result.get("resolved_params", params)
                     reasoning = result.get("reasoning", "")
                     
-                    if self.verbose:
-                        print(f"[パラメータ解決] {reasoning}")
+                    self.logger.ulog(f"{reasoning}", "info:param", show_level=True)
                     
                     return resolved_params
                 except json.JSONDecodeError:
                     pass
             
-            if self.verbose:
-                print(f"[パラメータ解決失敗] JSON解析エラー: {response_text[:100]}...")
+            self.logger.ulog(f"JSON解析エラー: {response_text[:100]}...", "error:param", show_level=True)
             return params
             
         except Exception as e:
-            if self.verbose:
-                print(f"[パラメータ解決エラー] {e}")
+            self.logger.ulog(f"{e}", "error:param", show_level=True)
             return params
     
     async def execute_tool_with_retry(self, tool: str, params: Dict, description: str = "") -> Any:
@@ -294,8 +290,7 @@ class TaskExecutor:
         Returns:
             実行結果
         """
-        if self.verbose:
-            self.logger.debug(f"execute_tool_with_retry が呼び出されました: tool={tool}")
+        self.logger.ulog(f"execute_tool_with_retry が呼び出されました: tool={tool}", "debug", show_level=True)
         
         # ErrorHandlerの試行履歴をリセット（新しいタスク開始時）
         if self.error_handler:
@@ -315,8 +310,7 @@ class TaskExecutor:
                             "result": task.result
                         })
             except Exception as e:
-                if self.verbose:
-                    self.logger.debug(f"実行コンテキスト取得エラー: {e}")
+                self.logger.ulog(f"実行コンテキスト取得エラー: {e}", "debug", show_level=True)
         
         max_retries = self.config.execution.max_retries
         original_params = params.copy()
@@ -328,20 +322,17 @@ class TaskExecutor:
             try:
                 raw_result = await self.connection_manager.call_tool(tool, current_params)
                 is_exception = False
-                if self.verbose:
-                    self.logger.debug(f"ツール実行成功 attempt={attempt + 1}")
+                self.logger.ulog(f"ツール実行成功 attempt={attempt + 1}", "debug", show_level=True)
             except Exception as e:
                 raw_result = f"ツールエラー: {e}"
                 is_exception = True
                 error_msg = safe_str(str(e))
-                if self.verbose:
-                    print(f"  [エラー] {error_msg}")
+                self.logger.ulog(f"{error_msg}", "error:error", show_level=True)
             
             # 2. LLM判断を常に実行（ErrorHandlerが利用可能な場合）
             if self.error_handler and self.llm:
                 try:
-                    if self.verbose:
-                        self.logger.info(f"  [分析] LLM判断を開始...")
+                    self.logger.ulog("LLM判断を開始...", "info:analysis", show_level=True)
                     
                     # すべての結果をLLMに判断させる（元の設計思想）
                     judgment = await self.error_handler.judge_and_process_result(
@@ -358,25 +349,23 @@ class TaskExecutor:
                     
                     # 3. LLMの判断に基づいて行動
                     if judgment.get("needs_retry", False) and attempt < max_retries:
-                        self.logger.info(f"  [LLM判断] リトライ必要: {judgment.get('error_reason', 'LLM判断によるリトライ')}")
+                        self.logger.ulog(f"リトライ必要: {judgment.get('error_reason', 'LLM判断によるリトライ')}", "info:llm_judgment", show_level=True)
                         
                         corrected_params = judgment.get("corrected_params", current_params)
                         if corrected_params != current_params:
-                            self.logger.info(f"  [修正] パラメータを修正: {safe_str(corrected_params)}")
+                            self.logger.ulog(f"パラメータを修正: {safe_str(corrected_params)}", "info:correction", show_level=True)
                             current_params = corrected_params
                         
                         continue
                     else:
                         # 成功またはリトライ不要と判断
-                        if self.verbose:
-                            self.logger.info(f"  [LLM判断] 処理完了")
+                        self.logger.ulog("処理完了", "info:llm_judgment", show_level=True)
                         if attempt > 0 and not is_exception:
-                            self.logger.info(f"  [成功] {attempt}回目のリトライで成功しました")
+                            self.logger.ulog(f"{attempt}回目のリトライで成功しました", "info:success", show_level=True)
                         return judgment.get("processed_result", raw_result)
                         
                 except Exception as llm_error:
-                    if self.verbose:
-                        self.logger.error(f"  [LLM判断エラー] {safe_str(str(llm_error))}")
+                    self.logger.ulog(f"{safe_str(str(llm_error))}", "error:llm_error", show_level=True)
                     # LLM判断でエラーの場合は結果をそのまま返すか例外処理
                     if not is_exception:
                         return raw_result
@@ -384,19 +373,17 @@ class TaskExecutor:
                 # ErrorHandlerがない場合の処理
                 if not is_exception:
                     # 成功時のログ
-                    if attempt > 0 and self.verbose:
-                        print(f"  [成功] {attempt}回目のリトライで成功しました")
+                    if attempt > 0:
+                        self.logger.ulog(f"{attempt}回目のリトライで成功しました", "info:success", show_level=True)
                     return raw_result
             
             # ErrorHandlerなしで例外が発生した場合の従来のリトライ処理
             if is_exception:
                 if attempt >= max_retries:
-                    if self.verbose:
-                        print(f"  [失敗] 最大リトライ回数({max_retries})に到達")
+                    self.logger.ulog(f"最大リトライ回数({max_retries})に到達", "info:failed", show_level=True)
                     raise Exception(raw_result)
                 
-                if self.verbose:
-                    print(f"  [リトライ] {attempt + 1}/{max_retries}")
+                self.logger.ulog(f"{attempt + 1}/{max_retries}", "info:retry", show_level=True)
                 
                 continue
         

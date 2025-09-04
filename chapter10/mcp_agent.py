@@ -121,9 +121,9 @@ class MCPAgent:
         if self.verbose:
             self.display.show_banner()
             if self._is_rich_ui_enabled():
-                self.logger.info("Rich UI mode enabled")
+                self.logger.ulog("Rich UI mode enabled", "info", show_level=True)
             else:
-                self.logger.info("Basic UI mode enabled")
+                self.logger.ulog("Basic UI mode enabled", "info", show_level=True)
     
     def _initialize_task_executor(self):
         """TaskExecutorの初期化（全コンポーネント初期化後に実行）"""
@@ -157,7 +157,7 @@ class MCPAgent:
                 with open(agent_md_path, "r", encoding="utf-8") as f:
                     content = f.read()
                 if hasattr(self, 'logger'):
-                    self.logger.info(f"AGENT.mdを読み込みました ({len(content)}文字)")
+                    self.logger.ulog(f"AGENT.mdを読み込みました ({len(content)}文字)", "info", show_level=True)
                 elif self.config.development.verbose:
                     self.logger.ulog(f"AGENT.mdを読み込みました ({len(content)}文字)", "info:config")
                 return content
@@ -315,7 +315,7 @@ class MCPAgent:
                 result['type'] = 'TOOL'
             
             
-            self.logger.info(f"判定: {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}")
+            self.logger.ulog(f"判定: {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}", "info:classification", show_level=True)
             
             return result
             
@@ -470,12 +470,12 @@ class MCPAgent:
                 if task_list:
                     
                     if attempt > 0:
-                        self.logger.info(f"[成功] タスクリスト生成 - {attempt + 1}回目の試行で成功")
+                        self.logger.ulog(f"タスクリスト生成 - {attempt + 1}回目の試行で成功", "info:success", show_level=True)
                     
                     # タスク数制限（全体的な上限）
                     max_tasks = self.config.execution.max_tasks
                     if len(task_list) > max_tasks:
-                        self.logger.warning(f"タスク数制限: {len(task_list)} → {max_tasks}")
+                        self.logger.ulog(f"タスク数制限: {len(task_list)} → {max_tasks}", "warning", show_level=True)
                         task_list = task_list[:max_tasks]
                     
                     return task_list
@@ -490,8 +490,8 @@ class MCPAgent:
                 self.logger.ulog(last_error, "info:retry")
                     
         # 全ての試行が失敗
-        self.logger.error(f"[失敗] タスクリスト生成 - {max_retries}回の試行全てが失敗")
-        self.logger.error(f"最後のエラー: {last_error}")
+        self.logger.ulog(f"タスクリスト生成 - {max_retries}回の試行全てが失敗", "error:failed", show_level=True)
+        self.logger.ulog(f"最後のエラー: {last_error}", "error", show_level=True)
             
         return []
     
@@ -544,11 +544,10 @@ class MCPAgent:
             serializable_results.append(result_data)
         
         # デバッグ: LLMに渡されるデータを確認
-        if self.verbose:
-            self.logger.debug("Serializable results being sent to LLM:")
-            for i, result in enumerate(serializable_results):
-                result_preview = str(result.get("result", "N/A"))[:100] + "..." if len(str(result.get("result", "N/A"))) > 100 else str(result.get("result", "N/A"))
-                self.logger.debug(f"  [{i+1}] Tool: {result['tool']}, Result: {result_preview}")
+        self.logger.ulog("Serializable results being sent to LLM:", "debug", show_level=True)
+        for i, result in enumerate(serializable_results):
+            result_preview = str(result.get("result", "N/A"))[:100] + "..." if len(str(result.get("result", "N/A"))) > 100 else str(result.get("result", "N/A"))
+            self.logger.ulog(f"[{i+1}] Tool: {result['tool']}, Result: {result_preview}", "debug", show_level=True)
         
         return serializable_results
     
@@ -672,7 +671,7 @@ class MCPAgent:
             return tasks
             
         except Exception as e:
-            self.logger.error(f"タスクリスト生成失敗: {e}")
+            self.logger.ulog(f"タスクリスト生成失敗: {e}", "error", show_level=True)
             # フォールバック処理は削除 - エラー時は空リストを返す
             return []
     

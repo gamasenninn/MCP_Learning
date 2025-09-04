@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-from utils import setup_windows_encoding, safe_str
+from utils import setup_windows_encoding, safe_str, Logger
 
 # Windows環境設定
 setup_windows_encoding()
@@ -40,6 +40,7 @@ class ConnectionManager:
         """
         self.config_file = config_file
         self.verbose = verbose
+        self.logger = Logger(verbose=verbose)
         
         # 接続管理用のデータ構造
         self.servers: Dict[str, Dict] = {}      # サーバー設定情報
@@ -73,15 +74,13 @@ class ConnectionManager:
     async def initialize(self):
         """全サーバーに接続してツール情報を収集"""
         if self._initialized:
-            if self.verbose:
-                print("[接続管理] 既に初期化済みです")
+            self.logger.ulog("既に初期化済みです", "info:connection")
             return
         
-        if self.verbose:
-            print("=" * 50)
-            print(" MCP Connection Manager V3")
-            print("=" * 50)
-            print(f"[設定] {len(self.servers)}個のサーバーを検出")
+        self.logger.ulog("=" * 50, "info")
+        self.logger.ulog(" MCP Connection Manager V3", "info")
+        self.logger.ulog("=" * 50, "info")
+        self.logger.ulog(f"{len(self.servers)}個のサーバーを検出", "info:config")
         
         # 各サーバーに接続
         await self._connect_all_servers()
@@ -91,21 +90,18 @@ class ConnectionManager:
         
         self._initialized = True
         
-        if self.verbose:
-            print(f"\n[初期化完了]")
-            print(f"  接続サーバー: {len(self.clients)}個")
-            print(f"  利用可能ツール: {len(self.tools_info)}個")
-            print("=" * 50)
+        self.logger.ulog(f"\n初期化完了", "info:init")
+        self.logger.ulog(f"  接続サーバー: {len(self.clients)}個", "info")
+        self.logger.ulog(f"  利用可能ツール: {len(self.tools_info)}個", "info")
+        self.logger.ulog("=" * 50, "info")
     
     async def _connect_all_servers(self):
         """全サーバーに接続"""
-        if self.verbose:
-            print("\n[接続] MCPサーバーに接続中...")
+        self.logger.ulog("\nMCPサーバーに接続中...", "info:connection")
         
         for server_name, server_info in self.servers.items():
             try:
-                if self.verbose:
-                    print(f"  {server_name}に接続中...", end="")
+                self.logger.ulog(f"  {server_name}に接続中...", "info:connection")
                 
                 # StdioTransportを使用してクライアントを作成
                 command = server_info["path"][0]
@@ -115,18 +111,15 @@ class ConnectionManager:
                 await client.__aenter__()
                 self.clients[server_name] = client
                 
-                if self.verbose:
-                    print(" OK")
+                self.logger.ulog(" OK", "info:connection")
                     
             except Exception as e:
-                if self.verbose:
-                    print(f" 失敗: {e}")
+                self.logger.ulog(f" 失敗: {e}", "error:error")
                 continue
     
     async def _collect_tools_info(self):
         """接続済みサーバーからツール情報を収集（簡素版）"""
-        if self.verbose:
-            print("\n[収集] ツール情報を収集中...")
+        self.logger.ulog("\nツール情報を収集中...", "info:collection")
         
         for server_name, client in self.clients.items():
             try:
@@ -145,12 +138,10 @@ class ConnectionManager:
                     }
                     tool_count += 1
                 
-                if self.verbose:
-                    print(f"  [{server_name}] {tool_count}個のツールを発見")
+                self.logger.ulog(f"[{server_name}] {tool_count}個のツールを発見", "info:collection")
                     
             except Exception as e:
-                if self.verbose:
-                    print(f"  [{server_name}] ツール情報取得失敗: {e}")
+                self.logger.ulog(f"[{server_name}] ツール情報取得失敗: {e}", "error:error")
                 continue
     
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
@@ -243,7 +234,7 @@ class ConnectionManager:
                 await client.__aexit__(None, None, None)
             except Exception as e:
                 if self.verbose:
-                    print(f"[警告] {server_name}の切断エラー: {e}")
+                    self.logger.ulog(f"{server_name}の切断エラー: {e}", "warning:warning")
         
         self.clients.clear()
         self._initialized = False
