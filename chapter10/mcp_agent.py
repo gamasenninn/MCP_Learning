@@ -11,7 +11,6 @@ import asyncio
 import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from dataclasses import asdict
 from openai import AsyncOpenAI
 
 from connection_manager import ConnectionManager
