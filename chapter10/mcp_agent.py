@@ -622,23 +622,7 @@ class MCPAgent:
         
         return summary
     
-    async def clear_session(self):
-        """現在のセッションをクリア"""
-        await self.state_manager.clear_current_session()
-        self.logger.ulog("\n新しいセッションで開始します", "info:clear", always_print=True)
     
-    def get_session_status(self) -> Dict[str, Any]:
-        """現在のセッション状態を取得"""
-        session_summary = self.state_manager.get_session_summary()
-        task_summary = self.task_manager.get_task_summary()
-        
-        return {
-            "session": session_summary,
-            "tasks": task_summary,
-            "can_resume": session_summary.get("has_work_to_resume", False),
-            "ui_mode": self.ui_mode,
-            "verbose": self.verbose
-        }
     
     
     async def _generate_unified_task_list(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:

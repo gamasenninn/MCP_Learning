@@ -390,3 +390,20 @@ class StateManager:
             "completed_tasks": len(self.current_session.completed_tasks),
             "has_work_to_resume": len(self.current_session.pending_tasks) > 0
         }
+    
+    def get_session_status(self, task_manager=None, ui_mode: str = None, verbose: bool = None) -> Dict[str, Any]:
+        """現在のセッション状態を取得（詳細版）"""
+        session_summary = self.get_session_summary()
+        
+        # タスクサマリーを取得（task_managerが提供された場合）
+        task_summary = {}
+        if task_manager:
+            task_summary = task_manager.get_task_summary()
+        
+        return {
+            "session": session_summary,
+            "tasks": task_summary,
+            "can_resume": session_summary.get("has_work_to_resume", False),
+            "ui_mode": ui_mode,
+            "verbose": verbose
+        }
