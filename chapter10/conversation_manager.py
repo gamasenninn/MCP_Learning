@@ -133,55 +133,6 @@ class ConversationManager:
         
         return lines
     
-    def format_context_for_llm(self, include_system_info: bool = False) -> str:
-        """
-        LLM向けに文脈をフォーマット
-        
-        Args:
-            include_system_info: システム情報を含めるかどうか
-            
-        Returns:
-            LLM用にフォーマットされた文脈
-        """
-        context = self.get_recent_context(include_results=True)
-        
-        if include_system_info and self.state_manager.current_session:
-            session_info = f"""
-## セッション情報
-- セッションID: {self.state_manager.current_session.session_id}
-- 開始時刻: {self.state_manager.current_session.created_at}
-- 実行タイプ: {self.state_manager.current_session.execution_type}
-"""
-            context = session_info + "\n" + context
-        
-        return context
-    
-    def get_execution_history(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """
-        実行履歴を取得
-        
-        Args:
-            limit: 取得する履歴数の上限
-            
-        Returns:
-            実行履歴のリスト
-        """
-        execution_history = []
-        
-        for item in self.conversation_history[-limit:]:
-            if item.get("execution_results"):
-                execution_history.append({
-                    "timestamp": item["timestamp"],
-                    "message": item["message"],
-                    "results": item["execution_results"]
-                })
-        
-        return execution_history
-    
-    def clear_history(self) -> None:
-        """会話履歴をクリア"""
-        self.conversation_history = []
-    
     def get_conversation_summary(self) -> Dict[str, Any]:
         """
         会話サマリーを取得
