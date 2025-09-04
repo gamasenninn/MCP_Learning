@@ -29,10 +29,10 @@ def test_verbose_false_no_output():
     # 標準出力をキャプチャ
     captured_output = io.StringIO()
     with redirect_stdout(captured_output):
-        logger.debug("This should not appear")
-        logger.info("This should not appear")
-        logger.warning("This should not appear")
-        logger.error("This should not appear")
+        logger.ulog("This should not appear", "debug", show_level=True)
+        logger.ulog("This should not appear", "info", show_level=True)
+        logger.ulog("This should not appear", "warning", show_level=True)
+        logger.ulog("This should not appear", "error", show_level=True)
     
     output = captured_output.getvalue()
     assert output == ""
@@ -45,10 +45,10 @@ def test_log_level_debug_shows_all():
     
     captured_output = io.StringIO()
     with redirect_stdout(captured_output):
-        logger.debug("Debug message")
-        logger.info("Info message")
-        logger.warning("Warning message")
-        logger.error("Error message")
+        logger.ulog("Debug message", "debug", show_level=True)
+        logger.ulog("Info message", "info", show_level=True)
+        logger.ulog("Warning message", "warning", show_level=True)
+        logger.ulog("Error message", "error", show_level=True)
     
     output = captured_output.getvalue()
     assert "[DEBUG] Debug message" in output
@@ -64,10 +64,10 @@ def test_log_level_info_filters_debug():
     
     captured_output = io.StringIO()
     with redirect_stdout(captured_output):
-        logger.debug("Debug message")
-        logger.info("Info message")
-        logger.warning("Warning message")
-        logger.error("Error message")
+        logger.ulog("Debug message", "debug", show_level=True)
+        logger.ulog("Info message", "info", show_level=True)
+        logger.ulog("Warning message", "warning", show_level=True)
+        logger.ulog("Error message", "error", show_level=True)
     
     output = captured_output.getvalue()
     assert "[DEBUG] Debug message" not in output
@@ -83,10 +83,10 @@ def test_log_level_warning_filters_debug_info():
     
     captured_output = io.StringIO()
     with redirect_stdout(captured_output):
-        logger.debug("Debug message")
-        logger.info("Info message")
-        logger.warning("Warning message")
-        logger.error("Error message")
+        logger.ulog("Debug message", "debug", show_level=True)
+        logger.ulog("Info message", "info", show_level=True)
+        logger.ulog("Warning message", "warning", show_level=True)
+        logger.ulog("Error message", "error", show_level=True)
     
     output = captured_output.getvalue()
     assert "[DEBUG] Debug message" not in output
@@ -102,10 +102,10 @@ def test_log_level_error_only_errors():
     
     captured_output = io.StringIO()
     with redirect_stdout(captured_output):
-        logger.debug("Debug message")
-        logger.info("Info message")
-        logger.warning("Warning message")
-        logger.error("Error message")
+        logger.ulog("Debug message", "debug", show_level=True)
+        logger.ulog("Info message", "info", show_level=True)
+        logger.ulog("Warning message", "warning", show_level=True)
+        logger.ulog("Error message", "error", show_level=True)
     
     output = captured_output.getvalue()
     assert "[DEBUG] Debug message" not in output

@@ -66,13 +66,6 @@ def setup_windows_encoding():
 class Logger:
     """統一されたログ出力クラス"""
     
-    LEVELS = {
-        'debug': 'DEBUG',
-        'info': 'INFO',
-        'warning': 'WARNING',
-        'error': 'ERROR'
-    }
-    
     # ログレベルの優先度
     LEVEL_PRIORITY = {
         'DEBUG': 10,
@@ -90,32 +83,6 @@ class Logger:
         self.verbose = verbose
         self.log_level = log_level.upper()
         self.min_priority = self.LEVEL_PRIORITY.get(self.log_level, 20)
-    
-    def log(self, level: str, message: str):
-        """統一ログ出力メソッド"""
-        if self.verbose:
-            level_name = self.LEVELS.get(level, level.upper())
-            level_priority = self.LEVEL_PRIORITY.get(level_name, 0)
-            
-            # ログレベルフィルタリング: 指定レベル以上のメッセージのみ出力
-            if level_priority >= self.min_priority:
-                print(f"[{level_name}] {message}")
-    
-    def debug(self, message: str):
-        """デバッグメッセージ"""
-        self.log('debug', message)
-    
-    def info(self, message: str):
-        """情報メッセージ"""
-        self.log('info', message)
-    
-    def warning(self, message: str):
-        """警告メッセージ"""
-        self.log('warning', message)
-    
-    def error(self, message: str):
-        """エラーメッセージ"""
-        self.log('error', message)
     
     def should_log(self, level: str) -> bool:
         """指定レベルのログを出力すべきか判定"""

@@ -428,7 +428,7 @@ if not RICH_AVAILABLE:
             # loggerが渡されていればwarning使用、なければprint
             logger = kwargs.get('logger')
             if logger:
-                logger.warning("Rich library not available. Using basic display.")
+                logger.ulog("Rich library not available. Using basic display.", "warning", show_level=True)
             else:
                 print("[WARNING] Rich library not available. Using basic display.")
             super().__init__(*args, **kwargs)

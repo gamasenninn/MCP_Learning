@@ -67,8 +67,8 @@ development:
         
         captured_output = io.StringIO()
         with redirect_stdout(captured_output):
-            logger.debug("Debug message")
-            logger.info("Info message")
+            logger.ulog("Debug message", "debug", show_level=True)
+            logger.ulog("Info message", "info", show_level=True)
         
         output = captured_output.getvalue()
         assert output == ""  # verbose=Falseなので何も出力されない
@@ -111,10 +111,10 @@ development:
         captured_output = io.StringIO()
         with redirect_stdout(captured_output):
             # 各レベルのメッセージを出力
-            logger.debug("Debug message")  # 出力されない
-            logger.info("Info message")    # 出力されない  
-            logger.warning("Warning message")  # 出力される
-            logger.error("Error message")      # 出力される
+            logger.ulog("Debug message", "debug", show_level=True)  # 出力されない
+            logger.ulog("Info message", "info", show_level=True)    # 出力されない  
+            logger.ulog("Warning message", "warning", show_level=True)  # 出力される
+            logger.ulog("Error message", "error", show_level=True)      # 出力される
         
         output = captured_output.getvalue()
         assert "[DEBUG] Debug message" not in output
@@ -145,7 +145,7 @@ def test_logger_with_config_defaults():
     # 設定に応じたテスト
     captured_output = io.StringIO()
     with redirect_stdout(captured_output):
-        logger.debug("Debug test message")
+        logger.ulog("Debug test message", "debug", show_level=True)
     
     output = captured_output.getvalue()
     
