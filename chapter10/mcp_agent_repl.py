@@ -13,6 +13,8 @@ MCP Agent REPL Interface
 import asyncio
 from mcp_agent import MCPAgent
 from repl_commands import CommandManager
+from interrupt_manager import get_interrupt_manager
+from task_executor import EscInterrupt
 
 # prompt_toolkit support
 try:
@@ -31,21 +33,71 @@ def create_prompt_session(agent):
     try:
         bindings = KeyBindings()
         
+        # ESCキーのdebounce制御
+        last_esc_time = [0.0]  # リストで包んで参照渡し
+        
         @bindings.add('escape')  # ESC単発のみ
         async def handle_esc(event):
-            # CLARIFICATION状態かチェック
-            if agent.state_manager.has_pending_tasks():
-                pending_tasks = agent.state_manager.get_pending_tasks()
-                clarification_tasks = [t for t in pending_tasks if t.tool == "CLARIFICATION"]
+            try:
+                import time
                 
-                if clarification_tasks:
-                    agent.logger.ulog("\n⏭ 確認をスキップします...", "info", always_print=True)
-                    event.app.exit(result='skip')
+                current_time = time.monotonic()
+                interrupt_manager = get_interrupt_manager()
+                status = interrupt_manager.get_status()
+                
+                # ダブルESCは即確定（1.2秒以内の連打）
+                if current_time - last_esc_time[0] < 1.2 and status['is_executing']:
+                    interrupt_manager.request_interrupt()
+                    interrupt_manager.confirm_interrupt()
+                    agent.logger.ulog("\n[DOUBLE-ESC] 中断を確定しました", "warning:interrupt", always_print=True)
+                    try:
+                        event.app.exit(result='')
+                    except Exception:
+                        pass
                     return
-            
-            # 通常時は入力をキャンセル
-            agent.logger.ulog("\n入力をキャンセルしました", "info:esc", always_print=True)
-            event.app.exit(result='')
+                
+                # debounce制御（0.2秒以内は無視）
+                if current_time - last_esc_time[0] < 0.2:
+                    return
+                last_esc_time[0] = current_time
+                
+                # CLARIFICATION状態かチェック
+                if agent.state_manager.has_pending_tasks():
+                    pending_tasks = agent.state_manager.get_pending_tasks()
+                    clarification_tasks = [t for t in pending_tasks if t.tool == "CLARIFICATION"]
+                    
+                    if clarification_tasks:
+                        agent.logger.ulog("\n⏭ 確認をスキップします...", "info", always_print=True)
+                        try:
+                            event.app.exit(result='skip')
+                        except Exception:
+                            pass  # 既にexitされている場合を無視
+                        return
+                
+                # 実行中のタスクがある場合は中断要求を発行
+                status = interrupt_manager.get_status()
+                if status['is_executing']:
+                    interrupt_manager.request_interrupt()
+                    agent.logger.ulog("\n[INTERRUPT] タスク中断要求を送信しました", "info:interrupt", always_print=True)
+                    try:
+                        event.app.exit(result='')
+                    except Exception:
+                        pass  # 既にexitされている場合を無視
+                    return
+                
+                # 通常時は入力をキャンセル
+                agent.logger.ulog("\n入力をキャンセルしました", "info:esc", always_print=True)
+                try:
+                    event.app.exit(result='')
+                except Exception:
+                    pass  # 既にexitされている場合を無視
+                    
+            except Exception as e:
+                # すべての例外をキャッチして静かに処理
+                try:
+                    agent.logger.ulog(f"\nESC処理エラー: {e}", "debug", always_print=False)
+                except:
+                    pass
         
         return PromptSession(key_bindings=bindings)
     
@@ -112,7 +164,15 @@ async def main():
                     continue
             
             # 通常のリクエスト処理
-            response = await agent.process_request(user_input)
+            from background_input_monitor import start_background_monitoring, stop_background_monitoring
+            
+            try:
+                # 実行フェーズに入るので BG 監視を開始
+                start_background_monitoring(verbose=True)  # 実行中の ESC を拾う
+                response = await agent.process_request(user_input)
+            finally:
+                # REPL に戻る直前で必ず停止（競合防止）
+                stop_background_monitoring()
             
             # Rich UIの場合はMarkdown整形表示
             if agent._has_rich_method('show_markdown_result'):
@@ -120,8 +180,12 @@ async def main():
             else:
                 agent.logger.ulog(f"\n{response}", "info", always_print=True)
     
+    except EscInterrupt:
+        agent.logger.ulog("\n\nESCキーによる中断です。", "warning:interrupt", always_print=True)
     except KeyboardInterrupt:
         agent.logger.ulog("\n\nCtrl+Cが押されました。", "warning:interrupt", always_print=True)
+    except Exception as e:
+        agent.logger.ulog(f"\n\n予期しないエラー: {e}", "error", always_print=True)
     finally:
         try:
             await agent.close()

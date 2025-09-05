@@ -31,7 +31,7 @@ class DisplayManager:
         self.show_timing = show_timing
         self.show_thinking = show_thinking
         self.logger = logger
-        self.start_time = time.time()
+        self.start_time = time.monotonic()
     
     def show_banner(self):
         """バナーを表示"""
@@ -181,7 +181,7 @@ class DisplayManager:
     
     def get_elapsed_time(self) -> float:
         """開始からの経過時間を取得"""
-        return time.time() - self.start_time
+        return time.monotonic() - self.start_time
     
     
     def show_welcome(self, servers: int, tools: int, ui_mode: str):

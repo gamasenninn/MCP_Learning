@@ -48,6 +48,13 @@ class LLMConfig:
 
 
 @dataclass
+class InterruptHandlingConfig:
+    """中断処理設定"""
+    timeout: float = 10.0
+    non_interactive_default: str = "abort"
+
+
+@dataclass
 class ConversationConfig:
     """会話設定"""
     context_limit: int = 10
@@ -86,6 +93,7 @@ class Config:
     error_handling: ErrorHandlingConfig = field(default_factory=ErrorHandlingConfig)
     development: DevelopmentConfig = field(default_factory=DevelopmentConfig)
     result_display: ResultDisplayConfig = field(default_factory=ResultDisplayConfig)
+    interrupt_handling: InterruptHandlingConfig = field(default_factory=InterruptHandlingConfig)
 
 
 class ConfigManager:

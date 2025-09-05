@@ -166,6 +166,19 @@ class ConnectionManager:
         client = self.clients[server_name]
         
         try:
+            # 中断チェック（ツール実行直前）
+            from interrupt_manager import get_interrupt_manager
+            from task_executor import SKIP, EscInterrupt
+            interrupt_manager = get_interrupt_manager()
+            
+            if interrupt_manager.should_abort():
+                # 強制中止（確定）は例外で処理
+                raise EscInterrupt("ユーザーが中止を確定")
+            
+            if interrupt_manager.check_interrupt():
+                # スキップ（要求中）は正常リターン
+                return SKIP
+            
             # ツール実行
             result = await client.call_tool(tool_name, arguments)
             
@@ -178,6 +191,8 @@ class ConnectionManager:
             
             return result
             
+        except KeyboardInterrupt:
+            raise  # ← 中止確定はそのまま
         except Exception as e:
             error_msg = safe_str(str(e))
             raise RuntimeError(f"ツール実行エラー ({tool_name}): {error_msg}")
