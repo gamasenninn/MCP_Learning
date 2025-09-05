@@ -84,8 +84,8 @@ class TestInterruptManager:
         # 実行開始
         self.manager.start_execution(task_desc)
         
-        # わずかな待機（実行時間を確保）
-        time.sleep(0.01)
+        # わずかな待機（実行時間を確保）- より長い時間で確実性向上
+        time.sleep(0.05)
         
         status = self.manager.get_status()
         assert status['is_executing'] == True
