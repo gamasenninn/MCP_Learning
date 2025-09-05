@@ -133,6 +133,7 @@ class TaskExecutor:
                     break
                 elif choice == 'skip':
                     self.logger.ulog(f"[SKIP] タスクをスキップ: {task.description}", "info:skip", always_print=True)
+                    await self.state_manager.move_task_to_completed(task.task_id, {"skipped": True})
                     continue
                 # choice == 'continue' の場合は継続
             else:

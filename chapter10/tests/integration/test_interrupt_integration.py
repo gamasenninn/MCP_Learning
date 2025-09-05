@@ -44,9 +44,14 @@ class TestInterruptIntegration:
         self.llm = AsyncMock()
         
         # 設定モック
-        self.config = Mock()
-        self.config.execution = Mock()
-        self.config.execution.max_retries = 2
+        from config_manager import ExecutionConfig
+        self.config = Config(
+            execution=ExecutionConfig(
+                max_retries=2,
+                timeout_seconds=30,
+                max_tasks=10
+            )
+        )
         
         # TaskExecutorを初期化
         self.task_executor = TaskExecutor(

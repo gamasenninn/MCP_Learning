@@ -25,7 +25,7 @@ class TestInterruptManager:
         import interrupt_manager
         interrupt_manager._global_interrupt_manager = None
         
-        self.manager = InterruptManager(verbose=False)
+        self.manager = InterruptManager(verbose=False, non_interactive_default="continue")
     
     def test_initial_state(self):
         """初期状態のテスト"""
@@ -85,7 +85,7 @@ class TestInterruptManager:
         self.manager.start_execution(task_desc)
         
         # わずかな待機（実行時間を確保）
-        time.sleep(0.001)
+        time.sleep(0.01)
         
         status = self.manager.get_status()
         assert status['is_executing'] == True
@@ -168,8 +168,9 @@ class TestInterruptManager:
         """中断選択処理のテスト（継続）"""
         self.manager.request_interrupt()
         
-        # 入力をモック
-        with patch('builtins.input', return_value='c'):
+        # 対話モードをシミュレートして入力をモック
+        with patch('sys.stdin.isatty', return_value=True), \
+             patch('builtins.input', return_value='c'):
             choice = await self.manager.handle_interrupt_choice()
             
         assert choice == 'continue'
@@ -180,8 +181,9 @@ class TestInterruptManager:
         """中断選択処理のテスト（スキップ）"""
         self.manager.request_interrupt()
         
-        # 入力をモック
-        with patch('builtins.input', return_value='s'):
+        # 対話モードをシミュレートして入力をモック
+        with patch('sys.stdin.isatty', return_value=True), \
+             patch('builtins.input', return_value='s'):
             choice = await self.manager.handle_interrupt_choice()
             
         assert choice == 'skip'
@@ -192,8 +194,9 @@ class TestInterruptManager:
         """中断選択処理のテスト（中止）"""
         self.manager.request_interrupt()
         
-        # 入力をモック
-        with patch('builtins.input', return_value='a'):
+        # 対話モードをシミュレートして入力をモック
+        with patch('sys.stdin.isatty', return_value=True), \
+             patch('builtins.input', return_value='a'):
             choice = await self.manager.handle_interrupt_choice()
             
         assert choice == 'abort'
