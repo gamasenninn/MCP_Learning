@@ -12,6 +12,7 @@ MCP Agent REPL Interface
 
 import asyncio
 from mcp_agent import MCPAgent
+from repl_commands import CommandManager
 
 # prompt_toolkit support
 try:
@@ -59,6 +60,11 @@ async def main():
     agent = MCPAgent()
     await agent.initialize()
     
+    # コマンドマネージャーを初期化
+    command_manager = CommandManager(agent)
+    # agentからも参照できるように設定
+    agent.command_manager = command_manager
+    
     try:
         # 初期化完了後のウェルカムメッセージ
         agent.display.show_welcome(
@@ -97,7 +103,15 @@ async def main():
             if not user_input:
                 continue
             
-            # リクエスト処理
+            # コマンド処理をチェック
+            if user_input.startswith("/"):
+                command_result = await command_manager.process(user_input)
+                if command_result:
+                    # コマンド結果は通常の出力で表示
+                    agent.logger.ulog(f"\n{command_result}", "info:command", always_print=True)
+                    continue
+            
+            # 通常のリクエスト処理
             response = await agent.process_request(user_input)
             
             # Rich UIの場合はMarkdown整形表示

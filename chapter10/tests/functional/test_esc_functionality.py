@@ -13,7 +13,7 @@ import asyncio
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from mcp_agent import MCPAgent
-from mcp_repl import create_prompt_session, PROMPT_TOOLKIT_AVAILABLE
+from mcp_agent_repl import create_prompt_session, PROMPT_TOOLKIT_AVAILABLE
 from config_manager import Config, DisplayConfig, DevelopmentConfig
 from state_manager import TaskState
 
@@ -52,7 +52,7 @@ class TestESCFunctionality:
         agent = Mock()
         
         # prompt_toolkit無効状態をシミュレート
-        with patch('mcp_repl.PROMPT_TOOLKIT_AVAILABLE', False):
+        with patch('mcp_agent_repl.PROMPT_TOOLKIT_AVAILABLE', False):
             session = create_prompt_session(agent)
             assert session is None
     

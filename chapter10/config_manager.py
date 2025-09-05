@@ -202,6 +202,244 @@ class ConfigManager:
         return config
     
     @staticmethod
+    def update_config_value(config: Config, key_path: str, new_value: str) -> None:
+        """設定値をドット記法で更新"""
+        keys = key_path.split('.')
+        target = config
+        for key in keys[:-1]:
+            if hasattr(target, key):
+                target = getattr(target, key)
+            else:
+                raise ValueError(f"設定キー '{key_path}' が見つかりません")
+        
+        final_key = keys[-1]
+        if hasattr(target, final_key):
+            # 型を自動変換
+            current_value = getattr(target, final_key)
+            converted_value = ConfigManager._convert_value_type(new_value, type(current_value))
+            setattr(target, final_key, converted_value)
+        else:
+            raise ValueError(f"設定キー '{key_path}' が見つかりません")
+    
+    @staticmethod
+    def get_config_value(config: Config, key_path: str):
+        """ドット記法で設定値を取得"""
+        keys = key_path.split('.')
+        value = config
+        for key in keys:
+            if hasattr(value, key):
+                value = getattr(value, key)
+            else:
+                return None
+        return value
+    
+    @staticmethod
+    def _convert_value_type(value: str, target_type):
+        """文字列を指定された型に変換"""
+        if target_type == bool:
+            if value.lower() in ['true', 'on', 'yes', '1']:
+                return True
+            elif value.lower() in ['false', 'off', 'no', '0']:
+                return False
+            else:
+                raise ValueError(f"bool値として解釈できません: {value}")
+        elif target_type == int:
+            return int(value)
+        elif target_type == float:
+            return float(value)
+        else:
+            return value
+    
+    @staticmethod
+    def get_all_config_keys(config: Config, prefix=""):
+        """すべての設定キーを取得（ドット記法）"""
+        keys = []
+        for attr_name in dir(config):
+            if not attr_name.startswith('_'):
+                attr_value = getattr(config, attr_name)
+                full_key = f"{prefix}.{attr_name}" if prefix else attr_name
+                
+                # データクラスの場合は再帰的に探索
+                if hasattr(attr_value, '__dataclass_fields__'):
+                    keys.extend(ConfigManager.get_all_config_keys(attr_value, full_key))
+                else:
+                    keys.append(full_key)
+        return keys
+    
+    @staticmethod
+    def save_config_to_file(config: Config, config_path: str = "config.yaml") -> bool:
+        """設定をファイルに保存（コメント保持）"""
+        try:
+            # ruamel.yamlでコメント保持保存を試行
+            return ConfigManager._save_config_with_comments(config, config_path)
+        except ImportError:
+            # ruamel.yamlがない場合は従来の方法にフォールバック
+            print("Info: ruamel.yaml not available, using standard yaml (comments will be lost)")
+            return ConfigManager._save_config_simple(config, config_path)
+        except Exception as e:
+            print(f"Warning: コメント保持保存に失敗: {e}")
+            # フォールバックを試行
+            return ConfigManager._save_config_simple(config, config_path)
+    
+    @staticmethod
+    def _save_config_with_comments(config: Config, config_path: str) -> bool:
+        """ruamel.yamlを使ってコメントを保持して保存"""
+        from ruamel.yaml import YAML
+        
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        yaml.width = 4096  # 行幅制限を大きく
+        yaml.map_indent = 2
+        yaml.sequence_indent = 4
+        
+        # 既存のconfig.yamlを読み込み（コメント保持）
+        if not os.path.exists(config_path):
+            # ファイルが存在しない場合は従来の方法で作成
+            return ConfigManager._save_config_simple(config, config_path)
+        
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_data = yaml.load(f)
+        
+        # 現在の設定値でYAMLデータを更新（構造とコメントは保持）
+        ConfigManager._update_yaml_values(config_data, config)
+        
+        # コメントを保持して書き込み
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config_data, f)
+        
+        return True
+    
+    @staticmethod
+    def _save_config_simple(config: Config, config_path: str) -> bool:
+        """標準yamlライブラリで保存（コメントは失われる）"""
+        import yaml
+        
+        # 現在の設定をdict形式に変換
+        config_dict = ConfigManager._config_to_dict(config)
+        
+        # config.yamlに書き込み
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config_dict, f, allow_unicode=True, default_flow_style=False, indent=2)
+            
+        return True
+    
+    @staticmethod
+    def _config_to_dict(config: Config) -> dict:
+        """Config オブジェクトを辞書に変換"""
+        result = {}
+        
+        # 各セクションを辞書に変換
+        sections = {
+            'display': config.display,
+            'execution': config.execution,
+            'llm': config.llm,
+            'conversation': config.conversation,
+            'error_handling': config.error_handling,
+            'development': config.development,
+            'result_display': config.result_display
+        }
+        
+        for section_name, section_obj in sections.items():
+            result[section_name] = {}
+            
+            # 各属性を辞書にコピー
+            for attr_name in dir(section_obj):
+                if not attr_name.startswith('_'):
+                    value = getattr(section_obj, attr_name)
+                    
+                    # ネストしたオブジェクトの場合は再帰的に変換
+                    if hasattr(value, '__dataclass_fields__'):
+                        result[section_name][attr_name] = {}
+                        for nested_attr in dir(value):
+                            if not nested_attr.startswith('_'):
+                                nested_value = getattr(value, nested_attr)
+                                result[section_name][attr_name][nested_attr] = nested_value
+                    else:
+                        result[section_name][attr_name] = value
+        
+        return result
+    
+    @staticmethod
+    def _update_yaml_values(yaml_data, config):
+        """YAMLデータの値部分のみを更新（構造とコメントは保持）"""
+        # 安全にキーが存在することを確認して更新
+        if 'display' in yaml_data:
+            if hasattr(config.display, 'ui_mode'):
+                yaml_data['display']['ui_mode'] = config.display.ui_mode
+            if hasattr(config.display, 'show_timing'):
+                yaml_data['display']['show_timing'] = config.display.show_timing
+            if hasattr(config.display, 'show_thinking'):
+                yaml_data['display']['show_thinking'] = config.display.show_thinking
+        
+        if 'development' in yaml_data:
+            if hasattr(config.development, 'verbose'):
+                yaml_data['development']['verbose'] = config.development.verbose
+            if hasattr(config.development, 'log_level'):
+                # log_levelがYAMLに存在しない場合は追加
+                if 'log_level' not in yaml_data['development']:
+                    yaml_data['development']['log_level'] = config.development.log_level
+                else:
+                    yaml_data['development']['log_level'] = config.development.log_level
+            if hasattr(config.development, 'show_api_calls'):
+                yaml_data['development']['show_api_calls'] = config.development.show_api_calls
+        
+        if 'llm' in yaml_data:
+            if hasattr(config.llm, 'model'):
+                yaml_data['llm']['model'] = config.llm.model
+            if hasattr(config.llm, 'temperature'):
+                yaml_data['llm']['temperature'] = config.llm.temperature
+            if hasattr(config.llm, 'force_json'):
+                yaml_data['llm']['force_json'] = config.llm.force_json
+            if hasattr(config.llm, 'reasoning_effort'):
+                yaml_data['llm']['reasoning_effort'] = config.llm.reasoning_effort
+            if hasattr(config.llm, 'max_completion_tokens'):
+                yaml_data['llm']['max_completion_tokens'] = config.llm.max_completion_tokens
+        
+        if 'execution' in yaml_data:
+            if hasattr(config.execution, 'max_retries'):
+                yaml_data['execution']['max_retries'] = config.execution.max_retries
+            if hasattr(config.execution, 'timeout_seconds'):
+                yaml_data['execution']['timeout_seconds'] = config.execution.timeout_seconds
+            if hasattr(config.execution, 'fallback_enabled'):
+                # fallback_enabledがYAMLに存在しない場合は追加
+                if 'fallback_enabled' not in yaml_data['execution']:
+                    yaml_data['execution']['fallback_enabled'] = config.execution.fallback_enabled
+                else:
+                    yaml_data['execution']['fallback_enabled'] = config.execution.fallback_enabled
+            if hasattr(config.execution, 'max_tasks'):
+                # max_tasksがYAMLに存在しない場合は追加
+                if 'max_tasks' not in yaml_data['execution']:
+                    yaml_data['execution']['max_tasks'] = config.execution.max_tasks
+                else:
+                    yaml_data['execution']['max_tasks'] = config.execution.max_tasks
+            
+            # ネストしたretry_strategy
+            if 'retry_strategy' in yaml_data['execution'] and hasattr(config.execution, 'retry_strategy'):
+                rs = config.execution.retry_strategy
+                yaml_data['execution']['retry_strategy']['max_retries'] = rs.max_retries
+                yaml_data['execution']['retry_strategy']['progressive_temperature'] = rs.progressive_temperature
+                yaml_data['execution']['retry_strategy']['initial_temperature'] = rs.initial_temperature
+                yaml_data['execution']['retry_strategy']['temperature_increment'] = rs.temperature_increment
+        
+        if 'conversation' in yaml_data:
+            if hasattr(config.conversation, 'context_limit'):
+                yaml_data['conversation']['context_limit'] = config.conversation.context_limit
+            if hasattr(config.conversation, 'max_history'):
+                yaml_data['conversation']['max_history'] = config.conversation.max_history
+        
+        if 'error_handling' in yaml_data:
+            if hasattr(config.error_handling, 'auto_correct_params'):
+                yaml_data['error_handling']['auto_correct_params'] = config.error_handling.auto_correct_params
+            if hasattr(config.error_handling, 'retry_interval'):
+                yaml_data['error_handling']['retry_interval'] = config.error_handling.retry_interval
+        
+        if 'result_display' in yaml_data:
+            if hasattr(config.result_display, 'max_result_length'):
+                yaml_data['result_display']['max_result_length'] = config.result_display.max_result_length
+            if hasattr(config.result_display, 'show_truncated_info'):
+                yaml_data['result_display']['show_truncated_info'] = config.result_display.show_truncated_info
+    
+    @staticmethod
     def validate_config(config: Config) -> None:
         """設定の妥当性をチェック"""
         
