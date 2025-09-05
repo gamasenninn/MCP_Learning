@@ -259,7 +259,7 @@ class MCPAgent:
         # 現在のクエリを保存（LLM判断で使用）
         self.current_user_query = user_query
         
-        # 状態に会話を記録
+        # 状態に会話を記録（リファクタリング前と同じ動作）
         await self.state_manager.add_conversation_entry("user", user_query)
     
     async def _handle_execution_flow(self, user_query: str) -> str:
@@ -337,12 +337,42 @@ class MCPAgent:
         """未完了タスクがある場合の処理"""
         pending_tasks = self.state_manager.get_pending_tasks()
         
-        # CLARIFICATIONタスクの処理
+        # CLARIFICATIONタスクがある場合（元の6f5feca版の直接処理）
         if self.task_manager.has_clarification_tasks():
-            clarification_task = self.task_manager.find_pending_clarification_task(pending_tasks)
-            
-            if clarification_task:
-                return await self._process_clarification_task(clarification_task, user_query)
+            for task in pending_tasks:
+                if task.tool == "CLARIFICATION" and task.status == "pending":
+                    # skipコマンドのチェック
+                    if user_query.lower() == 'skip':
+                        # CLARIFICATIONタスクをスキップ
+                        await self.state_manager.move_task_to_completed(
+                            task.task_id, 
+                            {"user_response": "skipped", "skipped": True}
+                        )
+                        
+                        # 元のクエリをそのまま処理（情報不足のまま）
+                        original_query = task.params.get("user_query", "")
+                        await self.state_manager.set_user_query(original_query, "TOOL")
+                        
+                        # スキップしたことを通知
+                        self.logger.ulog("\n質問をスキップしました。利用可能な情報で処理を続行します。", "info", always_print=True)
+                        
+                        # 元のクエリで処理を試みる
+                        return await self._execute_with_tasklist(original_query)
+                    
+                    # 通常の応答処理
+                    # CLARIFICATIONタスクを完了としてマーク
+                    await self.state_manager.move_task_to_completed(task.task_id, {"user_response": user_query})
+                    
+                    # 元のクエリとユーザー応答を組み合わせて新しいクエリを作成
+                    original_query = task.params.get("user_query", "")
+                    
+                    # より明確な形式でLLMが理解しやすく構成
+                    combined_query = f"{original_query}。{user_query}。"
+                    
+                    # 状態をリセットして新しいクエリとして処理
+                    await self.state_manager.set_user_query(combined_query, "TOOL")
+                    
+                    return await self._execute_with_tasklist(combined_query)
         
         # 通常のタスクを継続実行
         return await self._continue_pending_tasks(user_query)

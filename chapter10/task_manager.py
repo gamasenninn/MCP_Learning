@@ -218,7 +218,7 @@ class TaskManager:
             suggestions = "\n".join([f"- {value}" for value in suggested_values])
             message_parts.append(f"\n**例:**\n{suggestions}")
         
-        message_parts.append(f"\n> 回答をお待ちしています。（'skip'と入力、またはESCキーでスキップできます）")
+        message_parts.append(f"\n> 回答をお待ちしています。（空行または'skip'と入力でスキップできます）")
         
         return "\n".join(message_parts)
     
@@ -291,8 +291,16 @@ class TaskManager:
                 return task
         return None
     
+    async def skip_clarification(self, task_id: str) -> None:
+        """CLARIFICATIONタスクをスキップする（シンプル版）"""
+        # タスクを完了状態にしてスキップマーク
+        await self.state_manager.move_task_to_completed(
+            task_id, 
+            {"user_response": "skipped", "skipped": True}
+        )
+    
     async def handle_clarification_skip(self, task: TaskState, conversation_manager, state_manager) -> str:
-        """CLARIFICATIONタスクのスキップ処理"""
+        """CLARIFICATIONタスクのスキップ処理（旧版：互換性のため保持）"""
         await state_manager.move_task_to_completed(
             task.task_id, 
             {"user_response": "skipped", "skipped": True}
@@ -330,6 +338,8 @@ class TaskManager:
 会話履歴から推測できる値があればそれを使い、
 推測できない場合は適切なデフォルト値や一般的な例を使って、
 元のリクエストの意図に沿った処理を実行してください。
+
+重要: 追加のCLARIFICATION（確認）は行わず、直接実行してください。
 
 会話履歴:
 {context}"""

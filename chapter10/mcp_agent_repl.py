@@ -5,7 +5,7 @@ MCP Agent REPL Interface
 
 主な機能:
 - コマンドライン対話型インターフェース
-- ESCキーによるスキップ/キャンセル機能
+- 空行によるCLARIFICATIONスキップ機能
 - Rich/Simple UI対応
 - Ctrl+C割り込み処理
 """
@@ -19,87 +19,19 @@ from task_executor import EscInterrupt
 # prompt_toolkit support
 try:
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.key_binding import KeyBindings
     PROMPT_TOOLKIT_AVAILABLE = True
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
 
 
 def create_prompt_session(agent):
-    """ESCでスキップ/キャンセル機能付きプロンプトセッション作成"""
+    """シンプルなプロンプトセッション作成（補完・履歴機能付き、ESCバインドなし）"""
     if not PROMPT_TOOLKIT_AVAILABLE:
         return None
     
     try:
-        bindings = KeyBindings()
-        
-        # ESCキーのdebounce制御
-        last_esc_time = [0.0]  # リストで包んで参照渡し
-        
-        @bindings.add('escape')  # ESC単発のみ
-        async def handle_esc(event):
-            try:
-                import time
-                
-                current_time = time.monotonic()
-                interrupt_manager = get_interrupt_manager()
-                status = interrupt_manager.get_status()
-                
-                # ダブルESCは即確定（1.2秒以内の連打）
-                if current_time - last_esc_time[0] < 1.2 and status['is_executing']:
-                    interrupt_manager.request_interrupt()
-                    interrupt_manager.confirm_interrupt()
-                    agent.logger.ulog("\n[DOUBLE-ESC] 中断を確定しました", "warning:interrupt", always_print=True)
-                    try:
-                        event.app.exit(result='')
-                    except Exception:
-                        pass
-                    return
-                
-                # debounce制御（0.2秒以内は無視）
-                if current_time - last_esc_time[0] < 0.2:
-                    return
-                last_esc_time[0] = current_time
-                
-                # CLARIFICATION状態かチェック
-                if agent.state_manager.has_pending_tasks():
-                    pending_tasks = agent.state_manager.get_pending_tasks()
-                    clarification_tasks = [t for t in pending_tasks if t.tool == "CLARIFICATION"]
-                    
-                    if clarification_tasks:
-                        agent.logger.ulog("\n⏭ 確認をスキップします...", "info", always_print=True)
-                        try:
-                            event.app.exit(result='skip')
-                        except Exception:
-                            pass  # 既にexitされている場合を無視
-                        return
-                
-                # 実行中のタスクがある場合は中断要求を発行
-                status = interrupt_manager.get_status()
-                if status['is_executing']:
-                    interrupt_manager.request_interrupt()
-                    agent.logger.ulog("\n[INTERRUPT] タスク中断要求を送信しました", "info:interrupt", always_print=True)
-                    try:
-                        event.app.exit(result='')
-                    except Exception:
-                        pass  # 既にexitされている場合を無視
-                    return
-                
-                # 通常時は入力をキャンセル
-                agent.logger.ulog("\n入力をキャンセルしました", "info:esc", always_print=True)
-                try:
-                    event.app.exit(result='')
-                except Exception:
-                    pass  # 既にexitされている場合を無視
-                    
-            except Exception as e:
-                # すべての例外をキャッチして静かに処理
-                try:
-                    agent.logger.ulog(f"\nESC処理エラー: {e}", "debug", always_print=False)
-                except:
-                    pass
-        
-        return PromptSession(key_bindings=bindings)
+        # ESCキーバインドは設定せず、デフォルトの入力機能のみ使用
+        return PromptSession()
     
     except Exception:
         # Windows環境やCI環境でのコンソールエラーを無視
@@ -128,8 +60,6 @@ async def main():
         
         # プロンプトセッション初期化
         agent._prompt_session = create_prompt_session(agent)
-        if agent._prompt_session:
-            agent.logger.ulog("ESCキー: 確認スキップ/入力キャンセル", "info", always_print=True)
         
         agent.logger.ulog("-" * 60, "info", always_print=True)
         
@@ -137,7 +67,7 @@ async def main():
             try:
                 if agent._prompt_session:
                     # prompt_toolkit使用
-                    user_input = await agent._prompt_session.prompt_async("Agent> ")
+                    user_input = (await agent._prompt_session.prompt_async("Agent> ")).strip()
                 elif agent._has_rich_method('input_prompt'):
                     user_input = agent.display.input_prompt("Agent").strip()
                 else:
@@ -153,6 +83,53 @@ async def main():
                 break
             
             if not user_input:
+                # 空行の場合：CLARIFICATION状態ならスキップ処理
+                if agent.state_manager.has_pending_tasks():
+                    pending_tasks = agent.state_manager.get_pending_tasks()
+                    clarification_tasks = [t for t in pending_tasks if t.tool == "CLARIFICATION"]
+                    
+                    if clarification_tasks:
+                        agent.logger.ulog("\n⏭ 確認をスキップします...", "info", always_print=True)
+                        
+                        # CLARIFICATIONをスキップして自動実行
+                        clarification_task = clarification_tasks[0]  # 最初のCLARIFICATIONタスク
+                        
+                        # スマートクエリを生成して自動実行
+                        smart_query = await agent.task_manager.handle_clarification_skip(
+                            clarification_task, 
+                            agent.conversation_manager,
+                            agent.state_manager
+                        )
+                        
+                        # 残りのCLARIFICATIONタスクもスキップ（複数ある場合）
+                        for task in clarification_tasks[1:]:
+                            await agent.task_manager.skip_clarification(task.task_id)
+                        
+                        agent.logger.ulog(f"\n自動実行中: {smart_query[:100]}...", "info", always_print=True)
+                        
+                        # スマートクエリで自動実行
+                        from background_input_monitor import start_background_monitoring, stop_background_monitoring
+                        from interrupt_manager import get_interrupt_manager
+                        
+                        # CLARIFICATION skip時は中断状態のみリセット
+                        interrupt_manager = get_interrupt_manager()
+                        interrupt_manager.reset_interrupt()
+                        
+                        try:
+                            start_background_monitoring(verbose=True)
+                            response = await agent.process_request(smart_query)
+                        finally:
+                            stop_background_monitoring()
+                        
+                        # Rich UIの場合はMarkdown整形表示
+                        if agent._has_rich_method('show_markdown_result'):
+                            agent.display.show_markdown_result(response)
+                        else:
+                            agent.logger.ulog(f"\n{response}", "info", always_print=True)
+                        
+                        continue
+                
+                # 通常時の空行は無視
                 continue
             
             # コマンド処理をチェック
@@ -165,6 +142,13 @@ async def main():
             
             # 通常のリクエスト処理
             from background_input_monitor import start_background_monitoring, stop_background_monitoring
+            from interrupt_manager import get_interrupt_manager
+            
+            # 新しいリクエスト開始時に中断状態をリセット
+            interrupt_manager = get_interrupt_manager()
+            interrupt_manager.reset_interrupt()
+            
+            # セッションクリアを削除 - 会話履歴とタスク状態を自然な流れで管理
             
             try:
                 # 実行フェーズに入るので BG 監視を開始
