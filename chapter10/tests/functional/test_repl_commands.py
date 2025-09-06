@@ -52,11 +52,71 @@ class TestCommandManager:
             "ui_mode": "basic",
             "verbose": True
         })
-        agent.state_manager.get_conversation_context = Mock(return_value=[])
+        agent.state_manager.get_conversation_context = Mock(return_value=[
+            {"role": "user", "content": "test message 1"},
+            {"role": "assistant", "content": "test response 1"},
+            {"role": "user", "content": "test message 2"}
+        ])
         agent.state_manager.get_pending_tasks = Mock(return_value=[])
         agent.state_manager.get_completed_tasks = Mock(return_value=[])
         agent.state_manager.clear_current_session = AsyncMock()
         agent.state_manager.add_conversation_entry = AsyncMock()
+        
+        # 新しいセッション管理メソッドのモック
+        def mock_export_session_data():
+            # 毎回新しい辞書インスタンスを返す（Mockオブジェクトではない）
+            return {
+                "metadata": {"exported_at": "2025-01-01T00:00:00", "version": "1.0"},
+                "session_info": {"session_id": "test123", "conversation_entries": 3},
+                "conversation": [
+                    {"role": "user", "content": "test message 1"},
+                    {"role": "assistant", "content": "test response 1"},
+                    {"role": "user", "content": "test message 2"}
+                ],
+                "tasks": {"completed": [], "pending": []},
+                "statistics": {"total_conversations": 3, "total_tasks": 0, "completed_tasks": 0, "pending_tasks": 0}
+            }
+        
+        agent.state_manager.export_session_data = Mock(side_effect=mock_export_session_data)
+        
+        # import_session_data の完全なAsyncMock設定
+        async def mock_import_session_data(session_data, clear_current=False):
+            # 会話履歴の復元をシミュレート
+            conversation = session_data.get("conversation", [])
+            for entry in conversation:
+                await agent.state_manager.add_conversation_entry(entry["role"], entry["content"])
+            return True
+        agent.state_manager.import_session_data = AsyncMock(side_effect=mock_import_session_data)
+        
+        # list_saved_sessionsのモック
+        def mock_list_saved_sessions(export_dir=None):
+            from pathlib import Path
+            import json
+            # 実際にファイルを探す
+            if export_dir:
+                export_path = Path(export_dir)
+                if export_path.exists():
+                    sessions = []
+                    for file_path in export_path.glob("*.json"):
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                            stats = data.get("statistics", {})
+                            sessions.append({
+                                "filename": file_path.name,
+                                "filepath": str(file_path),
+                                "filesize": file_path.stat().st_size,
+                                "modified": file_path.stat().st_mtime,
+                                "conversations": stats.get("total_conversations", 0),
+                                "tasks": stats.get("total_tasks", 0),
+                                "version": "1.0"
+                            })
+                        except:
+                            continue
+                    return sessions
+            return []
+        
+        agent.state_manager.list_saved_sessions = Mock(side_effect=mock_list_saved_sessions)
         
         # ConnectionManagerのモック設定
         agent.connection_manager.tools_info = {}
@@ -372,6 +432,62 @@ class TestPhase2Commands:
         agent.connection_manager.clients = []
         agent.connection_manager.get_all_tools = Mock(return_value={})
         
+        # セッション管理メソッドのモック
+        def mock_export_session_data():
+            # 毎回新しい辞書インスタンスを返す（Mockオブジェクトではない）
+            return {
+                "metadata": {"exported_at": "2025-01-01T00:00:00", "version": "1.0"},
+                "session_info": {"session_id": "test123", "conversation_entries": 3},
+                "conversation": [
+                    {"role": "user", "content": "test message 1"},
+                    {"role": "assistant", "content": "test response 1"},
+                    {"role": "user", "content": "test message 2"}
+                ],
+                "tasks": {"completed": [], "pending": []},
+                "statistics": {"total_conversations": 3, "total_tasks": 0, "completed_tasks": 0, "pending_tasks": 0}
+            }
+        
+        agent.state_manager.export_session_data = Mock(side_effect=mock_export_session_data)
+        
+        # import_session_data の完全なAsyncMock設定
+        async def mock_import_session_data(session_data, clear_current=False):
+            # 会話履歴の復元をシミュレート
+            conversation = session_data.get("conversation", [])
+            for entry in conversation:
+                await agent.state_manager.add_conversation_entry(entry["role"], entry["content"])
+            return True
+        agent.state_manager.import_session_data = AsyncMock(side_effect=mock_import_session_data)
+        
+        # list_saved_sessionsのモック
+        def mock_list_saved_sessions(export_dir=None):
+            from pathlib import Path
+            import json
+            # 実際にファイルを探す
+            if export_dir:
+                export_path = Path(export_dir)
+                if export_path.exists():
+                    sessions = []
+                    for file_path in export_path.glob("*.json"):
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                            stats = data.get("statistics", {})
+                            sessions.append({
+                                "filename": file_path.name,
+                                "filepath": str(file_path),
+                                "filesize": file_path.stat().st_size,
+                                "modified": file_path.stat().st_mtime,
+                                "conversations": stats.get("total_conversations", 0),
+                                "tasks": stats.get("total_tasks", 0),
+                                "version": "1.0"
+                            })
+                        except:
+                            continue
+                    return sessions
+            return []
+        
+        agent.state_manager.list_saved_sessions = Mock(side_effect=mock_list_saved_sessions)
+        
         return agent
     
     @pytest.fixture
@@ -411,7 +527,7 @@ class TestPhase2Commands:
     @pytest.mark.asyncio
     async def test_save_command(self, command_manager, temp_export_dir):
         """saveコマンドのテスト"""
-        with patch.object(command_manager.handlers, '_get_export_dir', return_value=temp_export_dir):
+        with patch.object(command_manager.agent.state_manager, 'get_export_dir', return_value=temp_export_dir):
             result = await command_manager.process("/save test_session")
         
         assert "✅ セッションを保存しました: test_session.json" in result
@@ -433,7 +549,7 @@ class TestPhase2Commands:
     @pytest.mark.asyncio
     async def test_save_command_auto_filename(self, command_manager, temp_export_dir):
         """saveコマンド（自動ファイル名）のテスト"""
-        with patch.object(command_manager.handlers, '_get_export_dir', return_value=temp_export_dir):
+        with patch.object(command_manager.agent.state_manager, 'get_export_dir', return_value=temp_export_dir):
             result = await command_manager.process("/save")
         
         assert "✅ セッションを保存しました: session_" in result
@@ -456,7 +572,7 @@ class TestPhase2Commands:
         with open(test_file, 'w', encoding='utf-8') as f:
             json.dump(test_data, f)
         
-        with patch.object(command_manager.handlers, '_get_export_dir', return_value=temp_export_dir):
+        with patch.object(command_manager.agent.state_manager, 'get_export_dir', return_value=temp_export_dir):
             result = await command_manager.process("/load")
         
         assert "=== 利用可能な保存ファイル ===" in result
@@ -480,7 +596,7 @@ class TestPhase2Commands:
         with open(test_file, 'w', encoding='utf-8') as f:
             json.dump(test_data, f)
         
-        with patch.object(command_manager.handlers, '_get_export_dir', return_value=temp_export_dir):
+        with patch.object(command_manager.agent.state_manager, 'get_export_dir', return_value=temp_export_dir):
             result = await command_manager.process("/load load_test")
         
         assert "✅ セッションを読み込みました: load_test.json" in result

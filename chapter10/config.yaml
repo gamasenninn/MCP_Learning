@@ -104,6 +104,15 @@ development:
 
 # 結果表示設定
   log_level: INFO
+
+# 中断処理設定
+interrupt_handling:
+  # 中断要求のタイムアウト時間（秒）
+  timeout: 10.0
+
+  # 非対話環境でのデフォルト選択: "abort", "continue", "skip"
+  non_interactive_default: "abort"
+
 result_display:
   # 結果解釈時の最大文字数（データベース結果等）
   max_result_length: 1000

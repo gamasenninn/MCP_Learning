@@ -23,6 +23,8 @@ from state_manager import StateManager, TaskState
 from task_manager import TaskManager
 from conversation_manager import ConversationManager
 from task_executor import TaskExecutor
+from interrupt_manager import get_interrupt_manager
+from background_input_monitor import get_background_monitor
 
 # Rich UI support
 try:
@@ -84,9 +86,24 @@ class MCPAgent:
         
         # カスタム設定
         self.custom_instructions = self._load_agent_md()
+        
+        # 中断管理
+        self.interrupt_manager = get_interrupt_manager(
+            verbose=self.verbose,
+            non_interactive_default=self.config.interrupt_handling.non_interactive_default,
+            timeout=self.config.interrupt_handling.timeout
+        )
+        
+        # バックグラウンド入力監視
+        self.background_monitor = get_background_monitor(verbose=self.verbose)
     
     def _initialize_ui_and_logging(self):
         """UI表示とログ設定の初期化"""
+        # ログ設定を最初に初期化
+        self.verbose = self.config.development.verbose
+        log_level = self.config.development.log_level
+        self.logger = Logger(verbose=self.verbose, log_level=log_level)
+        
         # UI表示管理
         ui_mode = self.config.display.ui_mode
         
@@ -104,11 +121,6 @@ class MCPAgent:
                 show_thinking=self.config.display.show_thinking
             )
             self.ui_mode = "basic"
-        
-        # ログ設定とバナー表示
-        self.verbose = self.config.development.verbose
-        log_level = self.config.development.log_level
-        self.logger = Logger(verbose=self.verbose, log_level=log_level)
         
         if self.verbose:
             self.display.show_banner()
@@ -206,6 +218,9 @@ class MCPAgent:
             self.display.show_context_info(context_count)
         
         try:
+            # バックグラウンド監視を開始
+            self.background_monitor.start_monitoring()
+            
             # 対話的実行の開始
             response = await self._execute_interactive_dialogue(user_query)
             
@@ -220,6 +235,9 @@ class MCPAgent:
             if self.verbose:
                 self.logger.ulog(error_msg, "error:error")
             return error_msg
+        finally:
+            # バックグラウンド監視を停止
+            self.background_monitor.stop_monitoring()
     
     async def _execute_interactive_dialogue(self, user_query: str) -> str:
         """
@@ -241,7 +259,7 @@ class MCPAgent:
         # 現在のクエリを保存（LLM判断で使用）
         self.current_user_query = user_query
         
-        # 状態に会話を記録
+        # 状態に会話を記録（リファクタリング前と同じ動作）
         await self.state_manager.add_conversation_entry("user", user_query)
     
     async def _handle_execution_flow(self, user_query: str) -> str:
@@ -319,12 +337,42 @@ class MCPAgent:
         """未完了タスクがある場合の処理"""
         pending_tasks = self.state_manager.get_pending_tasks()
         
-        # CLARIFICATIONタスクの処理
+        # CLARIFICATIONタスクがある場合（元の6f5feca版の直接処理）
         if self.task_manager.has_clarification_tasks():
-            clarification_task = self.task_manager.find_pending_clarification_task(pending_tasks)
-            
-            if clarification_task:
-                return await self._process_clarification_task(clarification_task, user_query)
+            for task in pending_tasks:
+                if task.tool == "CLARIFICATION" and task.status == "pending":
+                    # skipコマンドのチェック
+                    if user_query.lower() == 'skip':
+                        # CLARIFICATIONタスクをスキップ
+                        await self.state_manager.move_task_to_completed(
+                            task.task_id, 
+                            {"user_response": "skipped", "skipped": True}
+                        )
+                        
+                        # 元のクエリをそのまま処理（情報不足のまま）
+                        original_query = task.params.get("user_query", "")
+                        await self.state_manager.set_user_query(original_query, "TOOL")
+                        
+                        # スキップしたことを通知
+                        self.logger.ulog("\n質問をスキップしました。利用可能な情報で処理を続行します。", "info", always_print=True)
+                        
+                        # 元のクエリで処理を試みる
+                        return await self._execute_with_tasklist(original_query)
+                    
+                    # 通常の応答処理
+                    # CLARIFICATIONタスクを完了としてマーク
+                    await self.state_manager.move_task_to_completed(task.task_id, {"user_response": user_query})
+                    
+                    # 元のクエリとユーザー応答を組み合わせて新しいクエリを作成
+                    original_query = task.params.get("user_query", "")
+                    
+                    # より明確な形式でLLMが理解しやすく構成
+                    combined_query = f"{original_query}。{user_query}。"
+                    
+                    # 状態をリセットして新しいクエリとして処理
+                    await self.state_manager.set_user_query(combined_query, "TOOL")
+                    
+                    return await self._execute_with_tasklist(combined_query)
         
         # 通常のタスクを継続実行
         return await self._continue_pending_tasks(user_query)
@@ -381,7 +429,8 @@ class MCPAgent:
             return "実行可能なタスクがありません。"
         
         # タスクを実行
-        return await self.task_executor.execute_single_task(next_task)
+        result = await self.task_executor.execute_task_sequence([next_task], user_query)
+        return result
     
     
     async def _execute_with_tasklist(self, user_query: str) -> str:
@@ -409,6 +458,11 @@ class MCPAgent:
         
         # 通常のタスクリスト実行
         execution_context = await self.task_executor.execute_task_sequence(tasks, user_query)
+        
+        # すべてのタスクがスキップされた場合の処理
+        if not execution_context:
+            return "タスクがスキップされました。"
+            
         return await self._interpret_planned_results(user_query, execution_context)
     
     def _get_llm_params(self, **kwargs) -> Dict:
@@ -673,4 +727,10 @@ class MCPAgent:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 # タイムアウトやキャンセルは静かに処理
                 pass
+        
+        # バックグラウンド監視を確実に停止
+        try:
+            self.background_monitor.stop_monitoring()
+        except:
+            pass
 

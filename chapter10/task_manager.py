@@ -131,40 +131,11 @@ class TaskManager:
         # 各パラメータをチェック
         for param_name, param_value in params.items():
             if isinstance(param_value, str):
-                # 不明な参照のチェック
-                clarification = await self._check_for_unknown_references(
-                    param_name, param_value, user_query
-                )
-                
-                if clarification:
-                    return processed_params, clarification
-                
                 # LLMが直接解決するため、そのまま保持
                 processed_params[param_name] = param_value
         
         return processed_params, None
     
-    async def _check_for_unknown_references(
-        self, 
-        param_name: str, 
-        param_value: str, 
-        user_query: str
-    ) -> Optional[ClarificationRequest]:
-        """
-        不明な参照をチェック（LLMベース判定に移行）
-        
-        Args:
-            param_name: パラメータ名
-            param_value: パラメータ値
-            user_query: ユーザーの要求
-            
-        Returns:
-            CLARIFICATION要求（必要な場合）- 現在は常にNone（LLMに委任）
-        """
-        # LLMが適切にパラメータを生成するようになったため、
-        # ハードコーディングされたパターンマッチングを削除
-        # 必要に応じてLLMが初期判定段階でCLARIFICATIONを生成する
-        return None
     
     
     async def _create_clarification_task(
@@ -218,48 +189,10 @@ class TaskManager:
             suggestions = "\n".join([f"- {value}" for value in suggested_values])
             message_parts.append(f"\n**例:**\n{suggestions}")
         
-        message_parts.append(f"\n> 回答をお待ちしています。（'skip'と入力、またはESCキーでスキップできます）")
+        message_parts.append(f"\n> 回答をお待ちしています。（空行または'skip'と入力でスキップできます）")
         
         return "\n".join(message_parts)
     
-    async def resolve_clarification(self, task_id: str, user_response: str) -> bool:
-        """
-        CLARIFICATION の回答を処理し、保留中のタスクを更新
-        
-        Args:
-            task_id: CLARIFICATIONタスクのID
-            user_response: ユーザーの回答
-            
-        Returns:
-            成功フラグ
-        """
-        # 完了したCLARIFICATIONタスクを取得
-        completed_tasks = self.state_manager.get_completed_tasks()
-        clarification_task = None
-        
-        for task in completed_tasks:
-            if task.task_id == task_id and task.tool == "CLARIFICATION":
-                clarification_task = task
-                break
-        
-        if not clarification_task:
-            return False
-        
-        # 保留中のタスクを更新
-        pending_tasks = self.state_manager.get_pending_tasks()
-        updated = False
-        
-        for task in pending_tasks:
-            if task.status == "waiting_for_clarification":
-                # パラメータを更新
-                param_name = clarification_task.params.get('parameter_name')
-                if param_name and param_name in task.params:
-                    task.params[param_name] = user_response
-                    task.status = "pending"
-                    task.updated_at = datetime.now().isoformat()
-                    updated = True
-        
-        return updated
     
     
     
@@ -284,36 +217,49 @@ class TaskManager:
         
         return False
     
-    def find_pending_clarification_task(self, pending_tasks: List[TaskState]) -> Optional[TaskState]:
-        """保留中のCLARIFICATIONタスクを検索"""
-        for task in pending_tasks:
-            if task.tool == "CLARIFICATION" and task.status == "pending":
-                return task
-        return None
     
+    async def handle_clarification(self, task: TaskState, user_input: str, conversation_manager, state_manager) -> str:
+        """
+        CLARIFICATION処理の統合関数
+        
+        Args:
+            task: CLARIFICATIONタスク
+            user_input: ユーザー入力（'skip'またはクエリ）
+            conversation_manager: 会話管理
+            state_manager: 状態管理
+            
+        Returns:
+            次に実行するクエリ
+        """
+        if user_input.lower().strip() == 'skip' or user_input.strip() == '':
+            # スキップ処理
+            await state_manager.move_task_to_completed(
+                task.task_id, 
+                {"user_response": "skipped", "skipped": True}
+            )
+            
+            smart_query = self._build_smart_query_for_skip(task, conversation_manager)
+            await state_manager.set_user_query(smart_query, "TOOL")
+            return smart_query
+        else:
+            # 通常応答処理
+            await state_manager.move_task_to_completed(
+                task.task_id, 
+                {"user_response": user_input}
+            )
+            
+            combined_query = self._combine_queries(task, user_input)
+            await state_manager.set_user_query(combined_query, "TOOL")
+            return combined_query
+    
+    # 互換性維持のための旧関数（将来削除予定）
     async def handle_clarification_skip(self, task: TaskState, conversation_manager, state_manager) -> str:
-        """CLARIFICATIONタスクのスキップ処理"""
-        await state_manager.move_task_to_completed(
-            task.task_id, 
-            {"user_response": "skipped", "skipped": True}
-        )
-        
-        smart_query = self._build_smart_query_for_skip(task, conversation_manager)
-        await state_manager.set_user_query(smart_query, "TOOL")
-        
-        return smart_query
+        """互換性維持のための旧関数"""
+        return await self.handle_clarification(task, 'skip', conversation_manager, state_manager)
     
     async def handle_clarification_response(self, task: TaskState, user_response: str, state_manager) -> str:
-        """CLARIFICATIONタスクへの通常応答処理"""
-        await state_manager.move_task_to_completed(
-            task.task_id, 
-            {"user_response": user_response}
-        )
-        
-        combined_query = self._combine_queries(task, user_response)
-        await state_manager.set_user_query(combined_query, "TOOL")
-        
-        return combined_query
+        """互換性維持のための旧関数"""
+        return await self.handle_clarification(task, user_response, None, state_manager)
     
     def _build_smart_query_for_skip(self, task: TaskState, conversation_manager) -> str:
         """スキップ時のスマートクエリ生成"""
@@ -330,6 +276,8 @@ class TaskManager:
 会話履歴から推測できる値があればそれを使い、
 推測できない場合は適切なデフォルト値や一般的な例を使って、
 元のリクエストの意図に沿った処理を実行してください。
+
+重要: 追加のCLARIFICATION（確認）は行わず、直接実行してください。
 
 会話履歴:
 {context}"""

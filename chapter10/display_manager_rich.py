@@ -53,7 +53,7 @@ class RichDisplayManager:
         
         self.show_timing = show_timing
         self.show_thinking = show_thinking
-        self.start_time = time.time()
+        self.start_time = time.monotonic()
         
         # Rich コンソールを初期化
         self.console = Console()
@@ -390,7 +390,7 @@ class RichDisplayManager:
     
     def get_elapsed_time(self) -> float:
         """開始からの経過時間を取得"""
-        return time.time() - self.start_time
+        return time.monotonic() - self.start_time
     
     def clear_screen(self):
         """画面クリア"""

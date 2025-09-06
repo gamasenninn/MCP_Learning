@@ -10,6 +10,7 @@ Task Executor for MCP Agent
 - ツール実行とリトライ処理
 """
 
+import asyncio
 import json
 import re
 import time
@@ -23,6 +24,16 @@ from display_manager import DisplayManager
 from error_handler import ErrorHandler
 from config_manager import Config
 from utils import safe_str, Logger
+from interrupt_manager import get_interrupt_manager
+
+# カスタム例外
+class EscInterrupt(Exception):
+    """ESCキーによる中断を示すカスタム例外"""
+    pass
+
+
+# スキップ判定用のセンチネル
+SKIP = object()
 
 
 class TaskExecutor:
@@ -62,8 +73,13 @@ class TaskExecutor:
         self.error_handler = error_handler
         self.verbose = verbose
         self.logger = Logger(verbose=verbose)
+        
+        # 中断管理
+        self.interrupt_manager = get_interrupt_manager(verbose=verbose)
     
-    async def execute_task_sequence(self, tasks: List[TaskState], user_query: str) -> str:
+    async def execute_task_sequence(self, tasks: List[TaskState], user_query: str) -> List[Dict]:
+        # 実行停止フラグ
+        self._stop_execution = False
         """
         タスクシーケンスを順次実行
         
@@ -100,54 +116,94 @@ class TaskExecutor:
         # 現在のユーザークエリを保存
         self.current_user_query = user_query
         
+        # 新しいタスクシーケンス開始時に中断状態をリセット
+        # FIXME: これが中断要求を無効化している可能性がある
+        # self.interrupt_manager.reset_interrupt()
+        
         for i, task in enumerate(executable_tasks):
-            # ステップ開始の表示
-            self.display.show_step_start(i+1, len(executable_tasks), task.description)
+            # 中断チェックポイント1: タスク開始前
+            interrupt_status = self.interrupt_manager.get_status()
+            self.logger.ulog(f"[STATUS] タスク{i+1}開始前: 中断状態={interrupt_status['interrupt_state']}", "debug:interrupt", always_print=True)  # 強制表示
             
-            # LLMベースでパラメータを解決
-            resolved_params = await self.resolve_parameters_with_llm(task, execution_context)
+            if self.interrupt_manager.check_interrupt():
+                self.logger.ulog("[CHECK] タスク開始前に中断検知", "info:interrupt", always_print=True)
+                choice = await self.interrupt_manager.handle_interrupt_choice()
+                if choice == 'abort':
+                    self.logger.ulog("[ABORT] タスクシーケンスを中止しました", "warning:abort", always_print=True)
+                    break
+                elif choice == 'skip':
+                    self.logger.ulog(f"[SKIP] タスクをスキップ: {task.description}", "info:skip", always_print=True)
+                    await self.state_manager.move_task_to_completed(task.task_id, {"skipped": True})
+                    continue
+                # choice == 'continue' の場合は継続
+            else:
+                self.logger.ulog(f"[DEBUG] 中断チェック結果: 継続実行", "debug:interrupt", always_print=True)
             
-            # ツール呼び出し情報を表示
-            self.display.show_tool_call(task.tool, resolved_params)
+            # タスク実行開始を記録
+            self.interrupt_manager.start_execution(task.description)
             
-            # タスク実行（リトライ機能付き）
-            start_time = time.time()
-            
-            # ErrorHandlerに現在のクエリを伝達
-            if self.error_handler:
-                self.error_handler.current_user_query = user_query
-            
-            result = await self.execute_tool_with_retry(
-                tool=task.tool,
-                params=resolved_params,
-                description=task.description
-            )
-            duration = time.time() - start_time
-            
-            # 結果を安全な形式に変換
-            safe_result = safe_str(result)
-            
-            # 成功時の処理
-            await self.state_manager.move_task_to_completed(task.task_id, safe_result)
-            completed.append(i)
-            
-            # ステップ完了の表示（実行時間付き）
-            self.display.show_step_complete(task.description, duration, success=True)
-            
-            # チェックリストの更新表示
-            tasks_with_duration = [
-                {"description": t.description, "duration": duration if j in completed else None}
-                for j, t in enumerate(executable_tasks)
-            ]
-            self.display.update_checklist(tasks_with_duration, current=-1, completed=completed, failed=failed)
-            
-            execution_context.append({
-                "success": True,
-                "result": safe_result,
-                "duration": duration,
-                "task_description": task.description,
-                "tool": task.tool
-            })
+            try:
+                # ステップ開始の表示
+                self.display.show_step_start(i+1, len(executable_tasks), task.description)
+                
+                # LLMベースでパラメータを解決
+                resolved_params = await self.resolve_parameters_with_llm(task, execution_context)
+                
+                # スキップされた場合の処理
+                if resolved_params is SKIP:
+                    self.logger.ulog(f"[SKIP] パラメータ解決段階でスキップ: {task.description}", "info:skip", always_print=True)
+                    continue  # 次のタスクへ
+                
+                # ツール呼び出し情報を表示
+                self.display.show_tool_call(task.tool, resolved_params)
+                
+                # タスク実行（リトライ機能付き）
+                start_time = time.monotonic()
+                
+                # ErrorHandlerに現在のクエリを伝達
+                if self.error_handler:
+                    self.error_handler.current_user_query = user_query
+                
+                result = await self.execute_tool_with_retry(
+                    tool=task.tool,
+                    params=resolved_params,
+                    description=task.description
+                )
+                duration = time.monotonic() - start_time
+                
+                # スキップされた場合の処理
+                if result is SKIP:
+                    self.logger.ulog(f"[SKIP] タスクがスキップされました: {task.description}", "info:skip", always_print=True)
+                    continue  # 次のタスクへ
+                
+                # 結果を安全な形式に変換
+                safe_result = safe_str(result)
+                
+                # 成功時の処理
+                await self.state_manager.move_task_to_completed(task.task_id, safe_result)
+                completed.append(i)
+                
+                # ステップ完了の表示（実行時間付き）
+                self.display.show_step_complete(task.description, duration, success=True)
+                
+                # チェックリストの更新表示
+                tasks_with_duration = [
+                    {"description": t.description, "duration": duration if j in completed else None}
+                    for j, t in enumerate(executable_tasks)
+                ]
+                self.display.update_checklist(tasks_with_duration, current=-1, completed=completed, failed=failed)
+                
+                execution_context.append({
+                    "success": True,
+                    "result": safe_result,
+                    "duration": duration,
+                    "task_description": task.description,
+                    "tool": task.tool
+                })
+                
+            finally:
+                # 必ずend_execution()を呼ぶ
+                self.interrupt_manager.end_execution()
         
         # 完了状況の表示
         if completed:
@@ -155,37 +211,9 @@ class TaskExecutor:
         if failed:
             self.logger.ulog(f"{len(failed)}個のタスクでエラーが発生", "error:failed")
         
+        # すべてスキップされた場合
+        # 実行コンテキストを返す（結果解釈は呼び出し元で処理）
         return execution_context
-    
-    async def execute_single_task(self, task: TaskState) -> str:
-        """
-        単一タスクを実行
-        
-        Args:
-            task: 実行するタスク
-            
-        Returns:
-            実行結果メッセージ
-        """
-        try:
-            # 依存関係を解決
-            completed_tasks = self.state_manager.get_completed_tasks()
-            resolved_task = await self.task_manager.resolve_task_dependencies(task, completed_tasks)
-            
-            # タスクを実行
-            result = await self.connection_manager.call_tool(resolved_task.tool, resolved_task.params)
-            
-            # 結果を安全な形式に変換
-            safe_result = safe_str(result)
-            
-            # 結果を状態に保存
-            await self.state_manager.move_task_to_completed(task.task_id, safe_result)
-            
-            return f"タスクが完了しました: {task.description}\n結果: {safe_result}"
-            
-        except Exception as e:
-            await self.state_manager.move_task_to_completed(task.task_id, error=str(e))
-            return f"タスク実行エラー: {task.description}\nエラー: {str(e)}"
     
     async def resolve_parameters_with_llm(self, task: TaskState, execution_context: List[Dict]) -> Dict:
         """
@@ -198,6 +226,18 @@ class TaskExecutor:
         Returns:
             解決されたパラメータ辞書
         """
+        # 中断チェック（パラメータ解決前）
+        if self.interrupt_manager.should_abort():
+            raise EscInterrupt("ユーザーが中止を確定")
+        if self.interrupt_manager.check_interrupt():
+            # 要求中の場合は選択肢を提示
+            choice = await self.interrupt_manager.handle_interrupt_choice()
+            if choice == 'abort':
+                raise EscInterrupt("ユーザーが中止を選択")
+            elif choice == 'skip':
+                return SKIP
+            # continue の場合は処理を続行
+        
         tool = task.tool
         params = task.params
         description = task.description
@@ -236,6 +276,12 @@ class TaskExecutor:
 ```"""
 
         try:
+            # LLM呼び出し前の中断チェック
+            if self.interrupt_manager.check_interrupt():
+                self.logger.ulog("[CHECK] パラメータ解決前に中断検知", "info:interrupt", always_print=True)
+                # ここでは例外は投げずにデフォルトパラメータを返す
+                return params
+            
             params_llm = self._get_llm_params(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
@@ -278,6 +324,46 @@ class TaskExecutor:
             self.logger.ulog(f"{e}", "error:param", show_level=True)
             return params
     
+    async def _execute_tool_with_interrupt(self, tool: str, params: Dict):
+        """
+        中断可能なツール実行ラッパー
+        定期的に中断をチェックしながらツールを実行する
+        """
+        # メインのツール実行タスク
+        tool_task = asyncio.create_task(self.connection_manager.call_tool(tool, params))
+        
+        # 中断監視タスク
+        async def interrupt_monitor():
+            while not tool_task.done():
+                await asyncio.sleep(0.1)  # 0.1秒ごとに中断チェック
+                if self.interrupt_manager.check_interrupt():
+                    self.logger.ulog("[CHECK] ツール実行中に中断検知", "info:interrupt", always_print=True)
+                    choice = await self.interrupt_manager.handle_interrupt_choice()
+                    if choice in ('abort', 'skip'):
+                        tool_task.cancel()
+                        return choice      # ← raise せず戻り値で通知
+                    # continue選択時は監視を続行（returnせずループ継続）
+                    continue
+
+        monitor_task = asyncio.create_task(interrupt_monitor())
+
+        try:
+            result = await tool_task
+            monitor_task.cancel()
+            return result
+        except asyncio.CancelledError:
+            # 監視側の決定を受け取る
+            try:
+                choice = await asyncio.wait_for(monitor_task, timeout=0.05)
+            except Exception:
+                choice = 'abort'
+            if choice == 'skip':
+                return SKIP
+            raise Exception("ユーザーによる中断")
+        except Exception:
+            monitor_task.cancel()
+            raise
+    
     async def execute_tool_with_retry(self, tool: str, params: Dict, description: str = "") -> Any:
         """
         リトライ機能付きでツールを実行（LLM判断機能統合版）
@@ -318,9 +404,17 @@ class TaskExecutor:
         current_user_query = getattr(self, 'current_user_query', '')
         
         for attempt in range(max_retries + 1):
+            # デコレータで中断チェックは処理されるため、個別のチェックは削除
+            
             # 1. ツール実行（例外をキャッチして結果として扱う）
             try:
-                raw_result = await self.connection_manager.call_tool(tool, current_params)
+                # ツール実行を中断可能にするためのラッパー（中断チェックはこの内部で実行）
+                raw_result = await self._execute_tool_with_interrupt(tool, current_params)
+                
+                # SKIPが返された場合は即座に終了
+                if raw_result is SKIP:
+                    return SKIP
+                
                 is_exception = False
                 self.logger.ulog(f"ツール実行成功 attempt={attempt + 1}", "debug", show_level=True)
             except Exception as e:
