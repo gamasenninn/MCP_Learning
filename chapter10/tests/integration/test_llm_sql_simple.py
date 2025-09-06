@@ -6,7 +6,7 @@ LLMによるSQL自動修正機能のシンプルな統合テスト
 
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 # Add parent directory to path for imports
 import sys
@@ -53,19 +53,17 @@ async def test_llm_judgment_always_executed_simple():
         verbose=True
     )
     
-    # LLMが「失敗」と判断してリトライを要求するレスポンス
-    mock_llm.chat.completions.create.return_value.choices[0].message.content = '''
-    {
-        "is_success": false,
-        "needs_retry": true,
+    # LLMInterfaceのjudge_tool_execution_resultメソッドをモック
+    mock_llm_interface.judge_tool_execution_result = AsyncMock(return_value={
+        "is_success": False,
+        "needs_retry": True,
         "error_reason": "空の結果が返されました",
         "corrected_params": {
             "sql": "SELECT p.name, SUM(s.total_amount) FROM sales s JOIN products p ON s.product_id = p.id GROUP BY p.name"
         },
         "processed_result": "修正されたクエリで再実行が必要です",
         "summary": "SQLクエリを修正しました"
-    }
-    '''
+    })
     
     # ツール実行（空の結果でもLLM判断が実行されることをテスト）
     result = await task_executor.execute_tool_with_retry(
@@ -76,7 +74,7 @@ async def test_llm_judgment_always_executed_simple():
     
     # 検証
     assert mock_connection_manager.call_tool.call_count >= 1  # ツールが実行された
-    assert mock_llm.chat.completions.create.call_count >= 1   # LLM判断が実行された
+    assert mock_llm_interface.judge_tool_execution_result.call_count >= 1   # LLM判断が実行された
     assert result is not None
     print("✅ LLM判断常時実行テスト成功")
 
@@ -119,43 +117,26 @@ async def test_llm_sql_parameter_correction():
     # 1回目: 失敗と判断してリトライ
     # 2回目: 成功と判断
     llm_responses = [
-        '''{
-            "is_success": false,
-            "needs_retry": true,
+        {
+            "is_success": False,
+            "needs_retry": True,
             "error_reason": "日本語のテーブル名が使用されています",
             "corrected_params": {
                 "sql": "SELECT p.name AS product_name, SUM(s.total_amount) AS total_sales FROM sales s JOIN products p ON s.product_id = p.id GROUP BY p.name"
             },
             "processed_result": "SQLを修正してリトライします",
             "summary": "適切なJOINクエリに修正"
-        }''',
-        '''{
-            "is_success": true,
-            "needs_retry": false,
+        },
+        {
+            "is_success": True,
+            "needs_retry": False,
             "processed_result": "商品の売上データが正常に取得されました",
             "summary": "クエリが成功しました"
-        }'''
+        }
     ]
     
-    mock_llm.chat.completions.create.return_value.choices[0].message.content = llm_responses[0]
-    
-    # 1回目の呼び出し後に2回目のレスポンスに切り替え
-    def side_effect(*args, **kwargs):
-        mock_llm.chat.completions.create.return_value.choices[0].message.content = llm_responses[1]
-        return mock_llm.chat.completions.create.return_value
-    
-    mock_llm.chat.completions.create.side_effect = [
-        type('Response', (), {
-            'choices': [type('Choice', (), {
-                'message': type('Message', (), {'content': llm_responses[0]})()
-            })()]
-        })(),
-        type('Response', (), {
-            'choices': [type('Choice', (), {
-                'message': type('Message', (), {'content': llm_responses[1]})()
-            })()]
-        })()
-    ]
+    # LLMInterfaceのjudge_tool_execution_resultメソッドをモック（段階的レスポンス）
+    mock_llm_interface.judge_tool_execution_result = AsyncMock(side_effect=llm_responses)
     
     # テスト実行
     result = await task_executor.execute_tool_with_retry(
@@ -166,12 +147,12 @@ async def test_llm_sql_parameter_correction():
     
     # 検証
     assert mock_connection_manager.call_tool.call_count == 2  # リトライで2回実行
-    assert mock_llm.chat.completions.create.call_count == 2   # 2回ともLLM判断実行
+    assert mock_llm_interface.judge_tool_execution_result.call_count == 2   # 2回ともLLM判断実行
     assert "商品の売上データが正常に取得されました" in str(result)
     
     print("✅ SQLパラメータ修正テスト成功")
     print(f"ツール呼び出し回数: {mock_connection_manager.call_tool.call_count}")
-    print(f"LLM判断回数: {mock_llm.chat.completions.create.call_count}")
+    print(f"LLM判断回数: {mock_llm_interface.judge_tool_execution_result.call_count}")
 
 
 if __name__ == "__main__":

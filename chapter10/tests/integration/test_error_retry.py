@@ -21,7 +21,7 @@ Phase 3リファクタリングで以下の機能が統合されました：
 
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock, call, Mock
 import json
 from pathlib import Path
 import sys
@@ -101,10 +101,13 @@ async def test_llm_error_correction(temp_dir, mock_config, mock_llm_client):
     mock_state_manager = MagicMock()
     mock_display_manager = MagicMock()
     
+    # LLMInterfaceの作成とモック
+    mock_llm_interface = Mock()
+    
     # ErrorHandlerを作成
     error_handler = ErrorHandler(
         config=mock_config,
-        llm_interface=Mock(),  # LLMInterfaceをモック
+        llm_interface=mock_llm_interface,
         verbose=True
     )
     
@@ -114,7 +117,7 @@ async def test_llm_error_correction(temp_dir, mock_config, mock_llm_client):
         connection_manager=mock_connection_manager,
         state_manager=mock_state_manager,
         display_manager=mock_display_manager,
-        llm_interface=Mock(),  # LLMInterfaceをモック
+        llm_interface=mock_llm_interface,
         config=mock_config,
         error_handler=error_handler,
         verbose=True
@@ -126,33 +129,25 @@ async def test_llm_error_correction(temp_dir, mock_config, mock_llm_client):
         "Success with corrected params"
     ]
     
-    # LLM判断のモック（段階的レスポンス）
-    def mock_llm_response(*args, **kwargs):
-        call_count = mock_llm_client.chat.completions.create.call_count
-        if call_count <= 1:
-            # 1回目: リトライが必要
-            response = json.dumps({
-                "is_success": False,
-                "needs_retry": True,
-                "error_reason": "パラメータエラーが発生しました",
-                "corrected_params": {"param": "corrected_value"},
-                "processed_result": "パラメータを修正しました",
-                "summary": "パラメータ修正によるリトライ"
-            })
-        else:
-            # 2回目以降: 成功
-            response = json.dumps({
-                "is_success": True,
-                "needs_retry": False,
-                "processed_result": "Success with corrected params",
-                "summary": "修正成功"
-            })
-        
-        mock_result = MagicMock()
-        mock_result.choices[0].message.content = response
-        return mock_result
-        
-    mock_llm_client.chat.completions.create.side_effect = mock_llm_response
+    # LLMInterfaceのjudge_tool_execution_resultメソッドをモック（段階的レスポンス）
+    llm_responses = [
+        {
+            "is_success": False,
+            "needs_retry": True,
+            "error_reason": "パラメータエラーが発生しました",
+            "corrected_params": {"param": "corrected_value"},
+            "processed_result": "パラメータを修正しました",
+            "summary": "パラメータ修正によるリトライ"
+        },
+        {
+            "is_success": True,
+            "needs_retry": False,
+            "processed_result": "Success with corrected params",
+            "summary": "修正成功"
+        }
+    ]
+    
+    mock_llm_interface.judge_tool_execution_result = AsyncMock(side_effect=llm_responses)
     
     result = await task_executor.execute_tool_with_retry(
         tool="test_tool",
@@ -167,7 +162,7 @@ async def test_llm_error_correction(temp_dir, mock_config, mock_llm_client):
     assert result == "Success with corrected params"
     
     # LLM判断が呼ばれたことを確認
-    assert mock_llm_client.chat.completions.create.called
+    assert mock_llm_interface.judge_tool_execution_result.called
 
 
 @pytest.mark.integration

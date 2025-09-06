@@ -23,6 +23,7 @@ from state_manager import StateManager, TaskState
 from task_manager import TaskManager
 from conversation_manager import ConversationManager
 from task_executor import TaskExecutor
+from clarification_handler import ClarificationHandler
 from interrupt_manager import get_interrupt_manager
 from background_input_monitor import get_background_monitor
 from llm_interface import LLMInterface
@@ -78,6 +79,15 @@ class MCPAgent:
         self.task_manager = TaskManager(self.state_manager)
         # ConversationManagerにConfig型を直接渡す
         self.conversation_manager = ConversationManager(self.state_manager, self.config)
+        
+        # ClarificationHandlerを初期化
+        self.clarification_handler = ClarificationHandler(
+            state_manager=self.state_manager,
+            task_manager=self.task_manager,
+            conversation_manager=self.conversation_manager,
+            llm_interface=self.llm_interface,
+            logger=self.logger
+        )
         
         # データ構造
         self.session_stats = {
@@ -292,8 +302,8 @@ class MCPAgent:
             self.conversation_manager.add_to_conversation("assistant", response)
             return response
         elif execution_type == "CLARIFICATION":
-            # ユーザーへの確認が必要
-            return await self._handle_clarification_needed(user_query, execution_result)
+            # ユーザーへの確認が必要（ClarificationHandlerに委譲）
+            return await self.clarification_handler.handle_clarification_needed(user_query, execution_result)
         else:
             # SIMPLE/COMPLEX統合：全てのツール実行要求を統一メソッドで処理
             return await self._execute_with_tasklist(user_query)
@@ -309,42 +319,19 @@ class MCPAgent:
         """未完了タスクがある場合の処理"""
         pending_tasks = self.state_manager.get_pending_tasks()
         
-        # CLARIFICATIONタスクがある場合（元の6f5feca版の直接処理）
-        if self.task_manager.has_clarification_tasks():
-            for task in pending_tasks:
-                if task.tool == "CLARIFICATION" and task.status == "pending":
-                    # skipコマンドのチェック
-                    if user_query.lower() == 'skip':
-                        # CLARIFICATIONタスクをスキップ
-                        await self.state_manager.move_task_to_completed(
-                            task.task_id, 
-                            {"user_response": "skipped", "skipped": True}
-                        )
-                        
-                        # 元のクエリをそのまま処理（情報不足のまま）
-                        original_query = task.params.get("user_query", "")
-                        await self.state_manager.set_user_query(original_query, "TOOL")
-                        
-                        # スキップしたことを通知
-                        self.logger.ulog("\n質問をスキップしました。利用可能な情報で処理を続行します。", "info", always_print=True)
-                        
-                        # 元のクエリで処理を試みる
-                        return await self._execute_with_tasklist(original_query)
-                    
-                    # 通常の応答処理
-                    # CLARIFICATIONタスクを完了としてマーク
-                    await self.state_manager.move_task_to_completed(task.task_id, {"user_response": user_query})
-                    
-                    # 元のクエリとユーザー応答を組み合わせて新しいクエリを作成
-                    original_query = task.params.get("user_query", "")
-                    
-                    # より明確な形式でLLMが理解しやすく構成
-                    combined_query = f"{original_query}。{user_query}。"
-                    
-                    # 状態をリセットして新しいクエリとして処理
-                    await self.state_manager.set_user_query(combined_query, "TOOL")
-                    
-                    return await self._execute_with_tasklist(combined_query)
+        # CLARIFICATIONタスクがある場合（ClarificationHandlerに委譲）
+        if self.clarification_handler.has_pending_clarifications():
+            # CLARIFICATION応答の処理
+            result_query = await self.clarification_handler.process_clarification_response(user_query)
+            
+            # skipの場合はスマートクエリが返される、通常の場合は結合クエリが返される
+            if user_query.lower() == 'skip':
+                self.logger.ulog("\n質問をスキップしました。利用可能な情報で処理を続行します。", "info", always_print=True)
+                
+            # 状態をリセットして新しいクエリとして処理
+            await self.state_manager.set_user_query(result_query, "TOOL")
+            
+            return await self._execute_with_tasklist(result_query)
         
         # 通常のタスクを継続実行
         return await self._continue_pending_tasks(user_query)
@@ -364,34 +351,6 @@ class MCPAgent:
                 task, user_query, self.state_manager
             )
             return await self._execute_with_tasklist(combined_query)
-    
-    async def _handle_clarification_needed(self, user_query: str, execution_result: Dict) -> str:
-        """CLARIFICATION必要時の処理"""
-        clarification_info = execution_result.get('clarification', {})
-        
-        # CLARIFICATIONタスクを生成
-        clarification_task = TaskState(
-            task_id=f"clarification_{int(time.time())}",
-            tool="CLARIFICATION",
-            params={
-                "question": clarification_info.get('question', '詳細情報をお教えください'),
-                "context": f"要求: {user_query}",
-                "user_query": user_query
-            },
-            description="ユーザーに確認",
-            status="pending"
-        )
-        
-        await self.state_manager.add_pending_task(clarification_task)
-        
-        # CLARIFICATIONタスクを実行
-        question_message = await self.task_manager.execute_clarification_task(clarification_task)
-        await self.state_manager.add_conversation_entry("assistant", question_message)
-        return question_message
-    
-    async def _handle_clarification_task(self, task: TaskState) -> str:
-        """CLARIFICATIONタスクの処理"""
-        return await self.task_manager.execute_clarification_task(task)
     
     async def _continue_pending_tasks(self, user_query: str) -> str:
         """保留中タスクの継続実行"""
@@ -426,7 +385,7 @@ class MCPAgent:
         # CLARIFICATIONタスクが生成された場合は優先処理
         clarification_task = next((task for task in tasks if task.tool == "CLARIFICATION"), None)
         if clarification_task:
-            return await self._handle_clarification_task(clarification_task)
+            return await self.clarification_handler.execute_clarification_task(clarification_task)
         
         # 通常のタスクリスト実行
         execution_context = await self.task_executor.execute_task_sequence(tasks, user_query)

@@ -92,14 +92,21 @@ class LLMInterface:
 この要求に対して最適な処理方式を選択してください。
 
 判定ルール:
-1. 既存の情報だけで回答可能 → NO_TOOL
-2. 情報が不足している → CLARIFICATION
-3. ツールを使用する必要がある → TOOL
+1. 計算、データベース検索、API呼び出し、ファイル操作などが必要な場合 → TOOL
+2. ユーザーの要求が曖昧で詳細確認が必要 → CLARIFICATION
+3. 単純な質問で既存の知識だけで十分回答可能 → NO_TOOL
+
+特に注意:
+- 数値計算（足し算、引き算、掛け算、割り算）→ 必ずTOOL（計算ツールを使用）
+- データ表示、検索、SQL関連 → 必ずTOOL（データベースツールを使用）
+- ファイルの読み書き → 必ずTOOL（ファイルシステムツールを使用）
 
 結果をJSON形式で返してください:
-{{"type": "NO_TOOL|CLARIFICATION|TOOL", "reason": "判定理由", "clarification": {{"question": "追加質問"}}}}
+{{"type": "NO_TOOL|CLARIFICATION|TOOL", "reason": "判定理由", "response": "ユーザーへの応答", "clarification": {{"question": "追加質問"}}}}
 
-CLARIFICATIONの場合のみclarificationフィールドを含める"""
+- NO_TOOLの場合: "response"フィールドに自然で適切な日本語応答を含める
+- CLARIFICATIONの場合: "clarification"フィールドに質問を含める
+- TOOLの場合: "response"フィールドは省略可能"""
 
         try:
             content = await self._call_llm(
@@ -385,3 +392,41 @@ JSON形式で回答してください：
         except Exception as e:
             self.logger.ulog(f"回復戦略生成エラー: {e}", "error:recovery")
             return {"strategy": "manual", "action": "手動対応が必要", "reason": f"戦略生成失敗: {str(e)}"}
+    
+    async def judge_tool_execution_result(self, prompt: str) -> Dict:
+        """
+        ツール実行結果の判断（TaskExecutor用）
+        
+        Args:
+            prompt: 判断用プロンプト
+            
+        Returns:
+            判断結果
+        """
+        try:
+            content = await self._call_llm(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            
+            result = json.loads(content)
+            
+            # 必要なフィールドのデフォルト値設定
+            if "is_success" not in result:
+                result["is_success"] = True
+            if "needs_retry" not in result:
+                result["needs_retry"] = False
+            if "processed_result" not in result:
+                result["processed_result"] = "処理結果を確認しました"
+            
+            return result
+            
+        except Exception as e:
+            self.logger.ulog(f"ツール実行結果判断エラー: {e}", "error:judgment")
+            return {
+                "is_success": True,
+                "needs_retry": False,
+                "processed_result": "判断エラーのため成功として処理",
+                "summary": f"判断エラー: {str(e)}"
+            }

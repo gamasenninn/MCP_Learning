@@ -15,7 +15,7 @@ import tempfile
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, Mock
 
 import sys
 import os
@@ -112,7 +112,7 @@ Available tools:
             connection_manager=connection_manager,
             state_manager=state_manager,
             display_manager=display_manager,
-            llm=llm_client,
+            llm_interface=Mock(),  # LLMInterfaceをモック
             config=agent.config,
             error_handler=error_handler,
             verbose=False
@@ -126,7 +126,6 @@ Available tools:
 class TestSessionStateFlow:
     """セッション状態フロー統合テスト"""
     
-    @pytest.mark.skip(reason="リファクタリング後の実装変更により複雑なモック調整が必要。主要機能の動作は別のテストで検証済み。")
     @pytest.mark.asyncio
     async def test_complete_clarification_to_execution_flow(self, integrated_agent):
         """CLARIFICATION → 実行 → 新リクエスト → 履歴参照の完全フロー"""
@@ -134,9 +133,22 @@ class TestSessionStateFlow:
         agent = integrated_agent
         
         # ステップ1: 初回リクエスト（CLARIFICATION要求）
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"type": "CLARIFICATION", "clarification": {"question": "あなたの年齢は何歳ですか？"}, "reason": "年齢情報が不明です"}'))
-        ]
+        def mock_determine_execution_type(user_query, recent_context, tools_info):
+            # 最初のリクエストの場合はCLARIFICATION
+            if "私の年齢に3をかけて100を引く" in user_query:
+                return {
+                    "type": "CLARIFICATION", 
+                    "clarification": {"question": "あなたの年齢は何歳ですか？"}, 
+                    "reason": "年齢情報が不明です"
+                }
+            # CLARIFICATION応答の場合はTOOL（ただし実際には_handle_pending_tasksで処理される）
+            else:
+                return {
+                    "type": "TOOL",
+                    "reason": "計算実行"
+                }
+        
+        agent.llm_interface.determine_execution_type = AsyncMock(side_effect=mock_determine_execution_type)
         
         result1 = await agent.process_request("私の年齢に3をかけて100を引く")
         
@@ -151,12 +163,10 @@ class TestSessionStateFlow:
         
         # ステップ2: CLARIFICATIONへの回答
         # タスクリスト生成のLLM応答をモック
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='''[
-                {"tool": "multiply", "params": {"a": 65, "b": 3}, "description": "年齢65に3をかける"},
-                {"tool": "subtract", "params": {"a": "{{前の結果}}", "b": 100}, "description": "前の結果から100を引く"}
-            ]'''))
-        ]
+        agent.llm_interface.generate_task_list = AsyncMock(return_value=[
+            {"tool": "multiply", "params": {"a": 65, "b": 3}, "description": "年齢65に3をかける"},
+            {"tool": "subtract", "params": {"a": "{{前の結果}}", "b": 100}, "description": "前の結果から100を引く"}
+        ])
         
         # ツール実行結果をモック
         async def mock_call_tool(tool_name, params):
@@ -169,9 +179,12 @@ class TestSessionStateFlow:
         agent.connection_manager.call_tool.side_effect = mock_call_tool
         
         # LLM判断（成功）をモック
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"success": true, "retry_needed": false, "reason": "計算が正常に完了"}'))
-        ]
+        agent.llm_interface.judge_tool_execution_result = AsyncMock(return_value={
+            "is_success": True, 
+            "needs_retry": False, 
+            "processed_result": "計算が正常に完了: 95",
+            "summary": "計算が正常に完了"
+        })
         
         result2 = await agent.process_request("65")
         
@@ -185,9 +198,11 @@ class TestSessionStateFlow:
         assert any(entry['content'] == "65" for entry in user_entries)
         
         # ステップ3: 年齢を問い合わせる新リクエスト
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"type": "NO_TOOL", "response": "あなたの年齢は65歳です。", "reason": "会話履歴から年齢情報を確認"}'))
-        ]
+        agent.llm_interface.determine_execution_type = AsyncMock(return_value={
+            "type": "NO_TOOL", 
+            "response": "あなたの年齢は65歳です。", 
+            "reason": "会話履歴から年齢情報を確認"
+        })
         
         result3 = await agent.process_request("私の年齢は？")
         
@@ -209,19 +224,23 @@ class TestSessionStateFlow:
         initial_session = agent.state_manager.current_session
         initial_session_id = initial_session.session_id if initial_session else None
         
-        # リクエスト1
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"type": "NO_TOOL", "response": "こんにちは！", "reason": "挨拶"}'))
-        ]
+        # リクエスト1 - LLMInterfaceのdetermine_execution_typeをモック
+        agent.llm_interface.determine_execution_type = AsyncMock(return_value={
+            "type": "NO_TOOL", 
+            "response": "こんにちは！", 
+            "reason": "挨拶"
+        })
         
         await agent.process_request("こんにちは")
         
         session_after_req1 = agent.state_manager.current_session
         
-        # リクエスト2  
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"type": "NO_TOOL", "response": "今日は良い天気ですね", "reason": "天候について"}'))
-        ]
+        # リクエスト2 - LLMInterfaceのdetermine_execution_typeをモック  
+        agent.llm_interface.determine_execution_type = AsyncMock(return_value={
+            "type": "NO_TOOL", 
+            "response": "今日は良い天気ですね", 
+            "reason": "天候について"
+        })
         
         await agent.process_request("今日はいい天気ですね")
         
@@ -239,25 +258,33 @@ class TestSessionStateFlow:
         assert "こんにちは" in contents
         assert "今日はいい天気ですね" in contents
     
-    @pytest.mark.skip(reason="リファクタリング後の実装変更により複雑なモック調整が必要。タスク状態管理は専用のunit testで検証済み。")
     @pytest.mark.asyncio
     async def test_task_completion_state_management(self, integrated_agent):
         """タスク完了状態の管理"""
         
         agent = integrated_agent
         
+        # determine_execution_type: TOOLと判定
+        agent.llm_interface.determine_execution_type = AsyncMock(return_value={
+            "type": "TOOL", 
+            "reason": "計算ツールが必要"
+        })
+        
         # タスク実行を伴うリクエスト
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='[{"tool": "multiply", "params": {"a": 10, "b": 5}, "description": "10に5をかける"}]'))
-        ]
+        agent.llm_interface.generate_task_list = AsyncMock(return_value=[
+            {"tool": "multiply", "params": {"a": 10, "b": 5}, "description": "10に5をかける"}
+        ])
         
         # ツール実行結果をモック
-        agent.connection_manager.call_tool.return_value = {"result": 50}
+        agent.connection_manager.call_tool = AsyncMock(return_value={"result": 50})
         
         # LLM判断をモック
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"success": true, "retry_needed": false, "reason": "計算完了"}'))
-        ]
+        agent.llm_interface.judge_tool_execution_result = AsyncMock(return_value={
+            "is_success": True, 
+            "needs_retry": False, 
+            "processed_result": "計算完了: 50",
+            "summary": "計算完了"
+        })
         
         await agent.process_request("10に5をかけて")
         
@@ -280,35 +307,39 @@ class TestSessionStateFlow:
         
         agent = integrated_agent
         
-        # 最初のリクエスト
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"type": "NO_TOOL", "response": "了解しました", "reason": "確認"}'))
-        ]
+        # 最初のリクエスト - LLMInterfaceのdetermine_execution_typeをモック
+        agent.llm_interface.determine_execution_type = AsyncMock(return_value={
+            "type": "NO_TOOL", 
+            "response": "了解しました", 
+            "reason": "確認"
+        })
         
         await agent.process_request("私の名前は田中です")
         
-        # 2番目のリクエスト
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"type": "NO_TOOL", "response": "田中さん、こんにちは！", "reason": "名前を覚えています"}'))
-        ]
+        # 2番目のリクエスト - LLMInterfaceのdetermine_execution_typeをモック
+        agent.llm_interface.determine_execution_type = AsyncMock(return_value={
+            "type": "NO_TOOL", 
+            "response": "田中さん、こんにちは！", 
+            "reason": "名前を覚えています"
+        })
         
         await agent.process_request("私の名前は？")
         
         # LLM呼び出し時に会話履歴が含まれていることを確認
-        llm_calls = agent.llm.chat.completions.create.call_args_list
+        llm_calls = agent.llm_interface.determine_execution_type.call_args_list
         
         # 最低1回はLLMが呼ばれている
         assert len(llm_calls) >= 1
         
-        # 最後の呼び出しで会話履歴が参照されている
+        # 最後の呼び出しで会話履歴が参照されている - LLMInterfaceでは引数の構造が異なる
+        # determine_execution_typeは(user_query, recent_context, tools_info)を受け取る
         last_call = llm_calls[-1]
-        call_args = last_call[1]  # kwargs
+        call_args = last_call[0]  # args
         
-        if 'messages' in call_args:
-            messages = call_args['messages']
-            # システムメッセージに会話履歴が含まれているはず
-            system_message = messages[0]['content'] if messages else ""
-            assert "田中" in system_message or any("田中" in msg.get('content', '') for msg in messages)
+        if len(call_args) >= 2:
+            recent_context = call_args[1]  # recent_context parameter
+            # 会話履歴に「田中」が含まれているはず
+            assert "田中" in recent_context
     
     @pytest.mark.asyncio 
     async def test_error_recovery_with_session_preservation(self, integrated_agent):
@@ -349,31 +380,40 @@ class TestRegressionPrevention:
         
         agent = integrated_agent
         
-        # CLARIFICATION要求
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"type": "CLARIFICATION", "clarification": {"question": "何歳ですか？"}, "reason": "年齢不明"}'))
-        ]
+        # CLARIFICATION要求 - LLMInterfaceのdetermine_execution_typeをモック
+        agent.llm_interface.determine_execution_type = AsyncMock(return_value={
+            "type": "CLARIFICATION", 
+            "clarification": {"question": "何歳ですか？"}, 
+            "reason": "年齢不明"
+        })
         
         result1 = await agent.process_request("年齢に関する計算をして")
         assert "何歳ですか？" in result1
         
-        # 回答
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='[{"tool": "multiply", "params": {"a": 30, "b": 2}, "description": "年齢30に2をかける"}]'))
-        ]
+        # 回答 - generate_task_listをモック
+        agent.llm_interface.generate_task_list = AsyncMock(return_value=[
+            {"tool": "multiply", "params": {"a": 30, "b": 2}, "description": "年齢30に2をかける"}
+        ])
         
-        agent.connection_manager.call_tool.return_value = {"result": 60}
+        # ツール実行結果をモック
+        agent.connection_manager.call_tool = AsyncMock(return_value={"result": 60})
         
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"success": true, "retry_needed": false, "reason": "計算完了"}'))
-        ]
+        # タスク実行後のLLM判断をモック
+        agent.llm_interface.judge_tool_execution_result = AsyncMock(return_value={
+            "is_success": True, 
+            "needs_retry": False, 
+            "processed_result": "計算完了: 60",
+            "summary": "計算が正常に完了しました"
+        })
         
         await agent.process_request("30")
         
-        # 履歴確認リクエスト
-        agent.llm.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content='{"type": "NO_TOOL", "response": "あなたの年齢は30歳です", "reason": "履歴から確認"}'))
-        ]
+        # 履歴確認リクエスト - determine_execution_typeをモック
+        agent.llm_interface.determine_execution_type = AsyncMock(return_value={
+            "type": "NO_TOOL", 
+            "response": "あなたの年齢は30歳です", 
+            "reason": "履歴から確認"
+        })
         
         result3 = await agent.process_request("私の年齢は？")
         
