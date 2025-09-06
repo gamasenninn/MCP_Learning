@@ -58,6 +58,9 @@ class MCPAgent:
         
         # prompt_toolkit用
         self._prompt_session = None
+        
+        # バックグラウンドタスク管理
+        self._background_tasks = set()
     
     def _initialize_core_components(self):
         """コアコンポーネント（外部サービス、設定、データ構造）の初期化"""
@@ -534,7 +537,9 @@ class MCPAgent:
         
         # 状態管理への追加は非同期なので、必要に応じて別途実行
         import asyncio
-        asyncio.create_task(self.state_manager.add_conversation_entry("assistant", final_response))
+        task = asyncio.create_task(self.state_manager.add_conversation_entry("assistant", final_response))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
         
         # basicモードの場合はヘッダー付き表示で返す（呼び出し元で処理）
     
@@ -600,9 +605,18 @@ class MCPAgent:
                 # タイムアウトやキャンセルは静かに処理
                 pass
         
+        # バックグラウンドタスクのクリーンアップ
+        if hasattr(self, '_background_tasks') and self._background_tasks:
+            try:
+                for task in self._background_tasks:
+                    task.cancel()
+                await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            except Exception as e:
+                self.logger.ulog(f"Error cleaning up background tasks: {e}", "error:cleanup")
+        
         # バックグラウンド監視を確実に停止
         try:
             self.background_monitor.stop_monitoring()
-        except:
-            pass
+        except Exception as e:
+            self.logger.ulog(f"Error in cleanup: {e}", "error:cleanup")
 

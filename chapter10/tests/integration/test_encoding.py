@@ -102,7 +102,7 @@ def test_mixed_encoding_scenario():
             cp932_decoded = cp932_encoded.decode('cp932')
             # 一部文字が失われる可能性を許容
             assert len(cp932_decoded) <= len(value)
-        except:
+        except Exception:
             # エンコードエラーは許容
             pass
 

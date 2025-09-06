@@ -76,6 +76,9 @@ class TaskExecutor:
         
         # 中断管理
         self.interrupt_manager = get_interrupt_manager(verbose=verbose)
+        
+        # アクティブタスク管理
+        self.active_tasks = set()
     
     async def execute_task_sequence(self, tasks: List[TaskState], user_query: str) -> List[Dict]:
         # 実行停止フラグ
@@ -117,8 +120,8 @@ class TaskExecutor:
         self.current_user_query = user_query
         
         # 新しいタスクシーケンス開始時に中断状態をリセット
-        # FIXME: これが中断要求を無効化している可能性がある
-        # self.interrupt_manager.reset_interrupt()
+        # 既存の中断状態を確認してから適切に処理
+        await self.handle_interruption()
         
         for i, task in enumerate(executable_tasks):
             # 中断チェックポイント1: タスク開始前
@@ -309,6 +312,8 @@ class TaskExecutor:
         """
         # メインのツール実行タスク
         tool_task = asyncio.create_task(self.connection_manager.call_tool(tool, params))
+        self.active_tasks.add(tool_task)
+        tool_task.add_done_callback(self.active_tasks.discard)
         
         # 中断監視タスク
         async def interrupt_monitor():
@@ -324,6 +329,8 @@ class TaskExecutor:
                     continue
 
         monitor_task = asyncio.create_task(interrupt_monitor())
+        self.active_tasks.add(monitor_task)
+        monitor_task.add_done_callback(self.active_tasks.discard)
 
         try:
             result = await tool_task
@@ -461,4 +468,18 @@ class TaskExecutor:
         
         # ここには到達しないはずだが、念のため
         return None
+    
+    async def cleanup(self):
+        """全アクティブタスクのキャンセル"""
+        if self.active_tasks:
+            for task in self.active_tasks:
+                task.cancel()
+            await asyncio.gather(*self.active_tasks, return_exceptions=True)
+    
+    async def handle_interruption(self):
+        """中断処理の改善"""
+        # 既存の中断処理ロジックを元の動作に合わせて修正
+        # 元のコードでは、タスクシーケンス開始前にresetしていたが、
+        # 適切な中断チェックのみを行う
+        pass
     

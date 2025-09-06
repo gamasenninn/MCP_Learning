@@ -243,7 +243,7 @@ class RichDisplayManager:
             clean_content = safe_str(content)
             json.loads(clean_content)
             formatted_content = Syntax(clean_content, "json", theme="monokai", line_numbers=False)
-        except:
+        except (json.JSONDecodeError, ValueError):
             # JSONでない場合は普通のテキスト（サロゲート文字も除去）
             formatted_content = safe_str(content)
         

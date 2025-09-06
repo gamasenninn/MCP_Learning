@@ -111,7 +111,7 @@ class TestCommandManager:
                                 "tasks": stats.get("total_tasks", 0),
                                 "version": "1.0"
                             })
-                        except:
+                        except Exception:
                             continue
                     return sessions
             return []
@@ -481,7 +481,7 @@ class TestPhase2Commands:
                                 "tasks": stats.get("total_tasks", 0),
                                 "version": "1.0"
                             })
-                        except:
+                        except Exception:
                             continue
                     return sessions
             return []
