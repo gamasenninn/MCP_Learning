@@ -1,0 +1,33 @@
+conversation:
+  context_limit: 10
+  max_history: 50
+development:
+  log_level: INFO
+  show_api_calls: true
+  verbose: true
+display:
+  show_thinking: false
+  show_timing: true
+  ui_mode: rich
+error_handling:
+  auto_correct_params: true
+  retry_interval: 1.0
+execution:
+  fallback_enabled: false
+  max_retries: 3
+  max_tasks: 10
+  retry_strategy:
+    initial_temperature: 0.1
+    max_retries: 3
+    progressive_temperature: true
+    temperature_increment: 0.2
+  timeout_seconds: 30
+llm:
+  force_json: true
+  max_completion_tokens: 5000
+  model: gpt-4o-mini
+  reasoning_effort: minimal
+  temperature: 0.2
+result_display:
+  max_result_length: 1000
+  show_truncated_info: true
