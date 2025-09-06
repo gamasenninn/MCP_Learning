@@ -407,3 +407,200 @@ class StateManager:
             "ui_mode": ui_mode,
             "verbose": verbose
         }
+    
+    def export_session_data(self) -> Dict[str, Any]:
+        """
+        セッションデータをエクスポート用辞書として返す
+        
+        Returns:
+            エクスポート用のセッション data辞書
+        """
+        from datetime import datetime
+        
+        # 会話履歴（全て）
+        conversation_context = self.get_conversation_context(1000)
+        
+        # タスク履歴
+        completed_tasks = self.get_completed_tasks()
+        pending_tasks = self.get_pending_tasks()
+        
+        # セッション基本情報
+        session_summary = self.get_session_summary()
+        
+        return {
+            "metadata": {
+                "exported_at": datetime.now().isoformat(),
+                "version": "1.0",
+                "agent_version": "MCP Agent v6"
+            },
+            "session_info": {
+                "session_id": self.current_session.session_id if self.current_session else None,
+                "created_at": self.current_session.created_at if self.current_session else None,
+                "conversation_entries": len(conversation_context),
+                "execution_type": session_summary.get("execution_type"),
+                "has_work_to_resume": session_summary.get("has_work_to_resume", False)
+            },
+            "conversation": conversation_context,
+            "tasks": {
+                "completed": [
+                    {
+                        "task_id": task.task_id,
+                        "tool": task.tool,
+                        "description": task.description,
+                        "result": str(task.result) if task.result else None,
+                        "error": task.error,
+                        "created_at": task.created_at,
+                        "updated_at": task.updated_at,
+                        "status": task.status
+                    }
+                    for task in completed_tasks
+                ],
+                "pending": [
+                    {
+                        "task_id": task.task_id,
+                        "tool": task.tool,
+                        "description": task.description,
+                        "params": task.params,
+                        "created_at": task.created_at,
+                        "status": task.status
+                    }
+                    for task in pending_tasks
+                ]
+            },
+            "statistics": {
+                "total_conversations": len(conversation_context),
+                "total_tasks": len(completed_tasks) + len(pending_tasks),
+                "completed_tasks": len(completed_tasks),
+                "pending_tasks": len(pending_tasks)
+            }
+        }
+    
+    async def import_session_data(self, session_data: Dict[str, Any], clear_current: bool = True) -> bool:
+        """
+        セッションデータをインポートして復元
+        
+        Args:
+            session_data: インポートするセッションデータ
+            clear_current: 現在のセッションをクリアするかどうか
+            
+        Returns:
+            成功フラグ
+        """
+        try:
+            if clear_current:
+                await self.clear_current_session()
+                await self.initialize_session()
+            
+            # 会話履歴の復元
+            conversation = session_data.get("conversation", [])
+            for entry in conversation:
+                await self.add_conversation_entry(entry["role"], entry["content"])
+            
+            # 完了タスクの復元
+            completed_tasks = session_data.get("tasks", {}).get("completed", [])
+            for task_data in completed_tasks:
+                task = TaskState(
+                    task_id=task_data["task_id"],
+                    tool=task_data["tool"],
+                    params={},  # 完了タスクはパラメータ不要
+                    description=task_data["description"],
+                    status="completed",
+                    created_at=task_data.get("created_at"),
+                    updated_at=task_data.get("updated_at"),
+                    result=task_data.get("result"),
+                    error=task_data.get("error")
+                )
+                self.completed_tasks.append(task)
+            
+            # 保留タスクの復元
+            pending_tasks = session_data.get("tasks", {}).get("pending", [])
+            for task_data in pending_tasks:
+                task = TaskState(
+                    task_id=task_data["task_id"],
+                    tool=task_data["tool"],
+                    params=task_data.get("params", {}),
+                    description=task_data["description"],
+                    status=task_data.get("status", "pending"),
+                    created_at=task_data.get("created_at")
+                )
+                await self.add_pending_task(task)
+            
+            # セッション情報の更新
+            if self.current_session and session_data.get("session_info"):
+                session_info = session_data["session_info"]
+                if session_info.get("execution_type"):
+                    self.current_session.execution_type = session_info["execution_type"]
+            
+            # セッション状態を保存
+            await self._save_session()
+            
+            return True
+            
+        except Exception as e:
+            # エラーログ
+            if hasattr(self, 'logger'):
+                self.logger.ulog(f"セッションインポートエラー: {e}", "error")
+            return False
+    
+    @staticmethod
+    def list_saved_sessions(export_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        保存されたセッションファイルの一覧を取得
+        
+        Args:
+            export_dir: エクスポートディレクトリパス（デフォルト: exports）
+            
+        Returns:
+            セッションファイル情報のリスト
+        """
+        import json
+        from pathlib import Path
+        
+        if export_dir is None:
+            export_dir = Path.cwd() / "exports"
+        else:
+            export_dir = Path(export_dir)
+        
+        if not export_dir.exists():
+            return []
+        
+        sessions = []
+        for file_path in export_dir.glob("*.json"):
+            try:
+                # ファイルサイズと更新日時
+                stat = file_path.stat()
+                
+                # JSONファイルの基本情報を読み取り
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                metadata = data.get("metadata", {})
+                session_info = data.get("session_info", {})
+                stats = data.get("statistics", {})
+                
+                sessions.append({
+                    "filename": file_path.name,
+                    "filepath": str(file_path),
+                    "filesize": stat.st_size,
+                    "modified": stat.st_mtime,
+                    "exported_at": metadata.get("exported_at"),
+                    "session_id": session_info.get("session_id"),
+                    "conversations": stats.get("total_conversations", 0),
+                    "tasks": stats.get("total_tasks", 0),
+                    "version": metadata.get("version")
+                })
+                
+            except (json.JSONDecodeError, KeyError, IOError):
+                # 無効なJSONファイルは無視
+                continue
+        
+        # 更新日時順でソート（新しい順）
+        sessions.sort(key=lambda x: x["modified"], reverse=True)
+        return sessions
+    
+    def get_export_dir(self) -> Path:
+        """エクスポートディレクトリを取得・作成"""
+        from pathlib import Path
+        export_dir = Path(".mcp_agent/exports")
+        export_dir.mkdir(parents=True, exist_ok=True)
+        return export_dir

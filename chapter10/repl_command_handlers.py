@@ -298,16 +298,11 @@ class ReplCommandHandlers:
         except Exception as e:
             return f"履歴取得エラー: {str(e)}"
     
-    def _get_export_dir(self) -> Path:
-        """エクスポートディレクトリを取得・作成"""
-        export_dir = Path(".mcp_agent/exports")
-        export_dir.mkdir(parents=True, exist_ok=True)
-        return export_dir
     
     async def cmd_save(self, args: str = "") -> str:
         """保存コマンド - セッションをファイルに保存"""
         try:
-            # ファイル名の決定
+            # ファイル名の決定（表示責任）
             if args.strip():
                 filename = args.strip()
                 if not filename.endswith('.json'):
@@ -317,80 +312,26 @@ class ReplCommandHandlers:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"session_{timestamp}.json"
             
-            export_dir = self._get_export_dir()
+            # エクスポートディレクトリの準備（表示責任）
+            export_dir = self.agent.state_manager.get_export_dir()
             file_path = export_dir / filename
             
-            # セッションデータを収集
-            session_data = {
-                "metadata": {
-                    "exported_at": datetime.now().isoformat(),
-                    "version": "1.0",
-                    "agent_version": "MCP Agent v6"
-                }
-            }
+            # セッションデータをStateManagerから取得（ビジネスロジック）
+            session_data = self.agent.state_manager.export_session_data()
             
-            # セッション情報
-            session_status = self.agent.state_manager.get_session_status(
-                task_manager=self.agent.task_manager,
-                ui_mode=self.agent.ui_mode,
-                verbose=self.agent.verbose
-            )
-            session_data["session_info"] = session_status.get("session", {})
+            # システム情報を追加（表示責任）
             session_data["system_info"] = {
-                "ui_mode": session_status.get("ui_mode"),
-                "verbose": session_status.get("verbose"),
+                "ui_mode": self.agent.ui_mode,
+                "verbose": self.agent.verbose,
                 "tools_count": len(self.agent.connection_manager.tools_info),
                 "servers_count": len(self.agent.connection_manager.clients)
             }
             
-            # 会話履歴（全て）
-            conversation_context = self.agent.state_manager.get_conversation_context(1000)
-            session_data["conversation"] = conversation_context
-            
-            # タスク履歴
-            completed_tasks = self.agent.state_manager.get_completed_tasks()
-            pending_tasks = self.agent.state_manager.get_pending_tasks()
-            
-            session_data["tasks"] = {
-                "completed": [
-                    {
-                        "task_id": task.task_id,
-                        "tool": task.tool,
-                        "description": task.description,
-                        "result": str(task.result) if task.result else None,
-                        "error": task.error,
-                        "created_at": task.created_at,
-                        "updated_at": task.updated_at,
-                        "status": task.status
-                    }
-                    for task in completed_tasks
-                ],
-                "pending": [
-                    {
-                        "task_id": task.task_id,
-                        "tool": task.tool,
-                        "description": task.description,
-                        "params": task.params,
-                        "created_at": task.created_at,
-                        "status": task.status
-                    }
-                    for task in pending_tasks
-                ]
-            }
-            
-            # 統計情報
-            session_data["statistics"] = {
-                "total_conversations": len(conversation_context),
-                "total_tasks": len(completed_tasks) + len(pending_tasks),
-                "completed_tasks": len(completed_tasks),
-                "pending_tasks": len(pending_tasks)
-            }
-            
-            # ファイルに保存
+            # ファイル保存（表示責任）
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(session_data, f, ensure_ascii=False, indent=2)
             
-            # 統計情報の表示
+            # 表示用メッセージの生成（表示責任）
             stats = session_data["statistics"]
             return f"""✅ セッションを保存しました: {filename}
 📊 保存内容:
@@ -400,68 +341,48 @@ class ReplCommandHandlers:
 💾 保存場所: {file_path}"""
             
         except Exception as e:
-            return f"保存エラー: {str(e)}"
+            return f"❌ 保存エラー: {str(e)}"
     
     async def cmd_load(self, args: str = "") -> str:
         """読み込みコマンド - 保存されたセッションを読み込み"""
         try:
-            export_dir = self._get_export_dir()
+            export_dir = self.agent.state_manager.get_export_dir()
             
             if not args.strip():
-                # 利用可能なファイル一覧を表示
-                json_files = list(export_dir.glob("*.json"))
-                if not json_files:
+                # ファイル一覧をStateManagerから取得（ビジネスロジック）
+                sessions = self.agent.state_manager.list_saved_sessions(str(export_dir))
+                if not sessions:
                     return "📁 保存されたセッションファイルがありません。\n💡 `/save` でセッションを保存できます。"
                 
-                lines = [
-                    "=== 利用可能な保存ファイル ===",
-                    ""
-                ]
+                # 表示フォーマット（表示責任）
+                lines = ["=== 利用可能な保存ファイル ===", ""]
                 
-                # 最新順にソート
-                json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-                
-                for i, file_path in enumerate(json_files[:10], 1):  # 最新10件
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                        
-                        stats = data.get("statistics", {})
-                        conversations = stats.get("total_conversations", 0)
-                        tasks = stats.get("total_tasks", 0)
-                        
-                        # ファイル更新日時
-                        mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
-                        time_str = mtime.strftime("%m/%d %H:%M")
-                        
-                        lines.append(f"{i:2d}. {file_path.stem} ({time_str})")
-                        lines.append(f"     💬 {conversations}件の会話, 📋 {tasks}個のタスク")
-                        
-                    except Exception:
-                        lines.append(f"{i:2d}. {file_path.stem} (読み込みエラー)")
+                for i, session in enumerate(sessions[:10], 1):  # 最新10件
+                    mtime = datetime.fromtimestamp(session["modified"])
+                    time_str = mtime.strftime("%m/%d %H:%M")
+                    
+                    lines.append(f"{i:2d}. {Path(session['filename']).stem} ({time_str})")
+                    lines.append(f"     💬 {session['conversations']}件の会話, 📋 {session['tasks']}個のタスク")
                 
                 lines.extend([
-                    "",
-                    "使用方法:",
+                    "", "使用方法:",
                     "  `/load filename` - ファイル名で読み込み",
                     "  `/load 1` - 番号で読み込み"
                 ])
                 
                 return "\n".join(lines)
             
-            # ファイル指定がある場合
+            # ファイル指定の解決（表示責任）
             file_path = None
+            sessions = self.agent.state_manager.list_saved_sessions(str(export_dir))
             
-            # 数字かどうかチェック（インデックス指定）
             if args.strip().isdigit():
+                # インデックス指定
                 index = int(args.strip())
-                json_files = list(export_dir.glob("*.json"))
-                json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-                
-                if 1 <= index <= len(json_files):
-                    file_path = json_files[index - 1]
+                if 1 <= index <= len(sessions):
+                    file_path = Path(sessions[index - 1]["filepath"])
                 else:
-                    return f"❌ インデックス {index} は範囲外です。1-{len(json_files)}を指定してください。"
+                    return f"❌ インデックス {index} は範囲外です。1-{len(sessions)}を指定してください。"
             else:
                 # ファイル名指定
                 filename = args.strip()
@@ -472,21 +393,17 @@ class ReplCommandHandlers:
                 if not file_path.exists():
                     return f"❌ ファイルが見つかりません: {filename}\n💡 `/load` で利用可能なファイルを確認できます。"
             
-            # ファイルを読み込み
+            # ファイル読み込みとインポート（ビジネスロジック）
             with open(file_path, 'r', encoding='utf-8') as f:
                 session_data = json.load(f)
             
-            # 会話履歴を復元（追加モード）
-            conversations = session_data.get("conversation", [])
-            if conversations:
-                for conv in conversations:
-                    # StateManagerに追加
-                    await self.agent.state_manager.add_conversation_entry(
-                        role=conv.get('role', 'user'),
-                        content=conv.get('content', '')
-                    )
+            # StateManagerにインポート（ビジネスロジック）
+            success = await self.agent.state_manager.import_session_data(session_data, clear_current=False)
             
-            # 統計情報
+            if not success:
+                return f"❌ セッションの復元に失敗しました: {file_path.name}"
+            
+            # 結果表示（表示責任）
             stats = session_data.get("statistics", {})
             metadata = session_data.get("metadata", {})
             
@@ -498,7 +415,7 @@ class ReplCommandHandlers:
 💡 `/history` で読み込まれた会話を確認できます"""
             
         except Exception as e:
-            return f"読み込みエラー: {str(e)}"
+            return f"❌ 読み込みエラー: {str(e)}"
     
     # ========== 設定管理コマンド ==========
     
