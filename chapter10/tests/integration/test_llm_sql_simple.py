@@ -38,14 +38,16 @@ async def test_llm_judgment_always_executed_simple():
     # ツール実行は成功するが、結果が空の場合をシミュレート
     mock_connection_manager.call_tool = AsyncMock(return_value="")  # 空の結果
     
-    error_handler = ErrorHandler(config=mock_config, llm=mock_llm, verbose=True)
+    # LLMInterfaceをモックしてErrorHandlerを初期化
+    mock_llm_interface = Mock()
+    error_handler = ErrorHandler(config=mock_config, llm_interface=mock_llm_interface, verbose=True)
     
     task_executor = TaskExecutor(
         task_manager=MagicMock(),
         connection_manager=mock_connection_manager,
         state_manager=MagicMock(),
         display_manager=MagicMock(),
-        llm=mock_llm,
+        llm_interface=mock_llm_interface,
         config=mock_config,
         error_handler=error_handler,
         verbose=True
@@ -99,14 +101,16 @@ async def test_llm_sql_parameter_correction():
     call_results = ["", '{"results": [{"name": "iPhone", "sales": 1000000}]}']
     mock_connection_manager.call_tool = AsyncMock(side_effect=call_results)
     
-    error_handler = ErrorHandler(config=mock_config, llm=mock_llm, verbose=True)
+    # LLMInterfaceをモックしてErrorHandlerを初期化
+    mock_llm_interface = Mock()
+    error_handler = ErrorHandler(config=mock_config, llm_interface=mock_llm_interface, verbose=True)
     
     task_executor = TaskExecutor(
         task_manager=MagicMock(),
         connection_manager=mock_connection_manager,
         state_manager=MagicMock(),
         display_manager=MagicMock(),
-        llm=mock_llm,
+        llm_interface=mock_llm_interface,
         config=mock_config,
         error_handler=error_handler,
         verbose=True

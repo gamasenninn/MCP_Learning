@@ -19,8 +19,8 @@ async def test_gpt5_parameter_generation(mcp_agent_mock):
     agent = mcp_agent_mock
     agent.config.llm.model = "gpt-5-mini"
     
-    # GPT-5用パラメータ生成
-    params = agent._get_llm_params(
+    # GPT-5用パラメータ生成 - LLMInterface経由
+    params = agent.llm_interface._get_llm_params(
         messages=[{"role": "user", "content": "test"}],
         temperature=0.1
     )
@@ -40,8 +40,8 @@ async def test_gpt4_parameter_generation(mcp_agent_mock):
     agent = mcp_agent_mock
     agent.config.llm.model = "gpt-4o-mini"
     
-    # GPT-4用パラメータ生成
-    params = agent._get_llm_params(
+    # GPT-4用パラメータ生成 - LLMInterface経由
+    params = agent.llm_interface._get_llm_params(
         messages=[{"role": "user", "content": "test"}],
         temperature=0.1
     )
@@ -63,7 +63,7 @@ def test_gpt5_models_support():
     
     for model in gpt5_models:
         agent.config = Config(llm=LLMConfig(model=model))
-        params = agent._get_llm_params(messages=[])
+        params = agent.llm_interface._get_llm_params(messages=[])
         
         # 全てのGPT-5モデルで適切なパラメータが生成されることを確認
         assert params["model"] == model
@@ -84,7 +84,7 @@ def test_reasoning_effort_levels():
         )
     )
     
-    params = agent._get_llm_params(messages=[])
+    params = agent.llm_interface._get_llm_params(messages=[])
     
     assert params["reasoning_effort"] == "high"
     assert params["max_completion_tokens"] == 2000

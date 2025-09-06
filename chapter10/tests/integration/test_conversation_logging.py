@@ -32,7 +32,7 @@ async def test_clarification_question_logged():
         
         # TaskManagerの初期化
         mock_llm = AsyncMock()
-        task_manager = TaskManager(state_manager, mock_llm)
+        task_manager = TaskManager(state_manager)
         
         # CLARIFICATIONタスクを作成
         clarification_task = TaskState(
@@ -135,7 +135,7 @@ async def test_complete_clarification_workflow():
         )
         conversation_manager = ConversationManager(state_manager, mock_config)
         mock_llm = AsyncMock()
-        task_manager = TaskManager(state_manager, mock_llm)
+        task_manager = TaskManager(state_manager)
         
         # 1. ユーザーのクエリを記録
         user_query = "私の年齢に３をかけて１００をひいて"
@@ -198,7 +198,7 @@ async def test_multiple_clarifications():
         await state_manager.initialize_session()
         
         mock_llm = AsyncMock()
-        task_manager = TaskManager(state_manager, mock_llm)
+        task_manager = TaskManager(state_manager)
         
         # 複数のCLARIFICATIONタスクを順次実行
         clarifications = [

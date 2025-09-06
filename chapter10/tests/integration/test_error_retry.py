@@ -59,7 +59,7 @@ async def test_basic_retry_functionality(temp_dir, mock_config, mock_llm_client)
         connection_manager=mock_connection_manager,
         state_manager=mock_state_manager,
         display_manager=mock_display_manager,
-        llm=mock_llm_client,
+        llm_interface=Mock(),  # LLMInterfaceをモック
         config=mock_config,
         error_handler=None,  # ErrorHandlerなしでテスト
         verbose=True
@@ -104,7 +104,7 @@ async def test_llm_error_correction(temp_dir, mock_config, mock_llm_client):
     # ErrorHandlerを作成
     error_handler = ErrorHandler(
         config=mock_config,
-        llm=mock_llm_client,
+        llm_interface=Mock(),  # LLMInterfaceをモック
         verbose=True
     )
     
@@ -114,7 +114,7 @@ async def test_llm_error_correction(temp_dir, mock_config, mock_llm_client):
         connection_manager=mock_connection_manager,
         state_manager=mock_state_manager,
         display_manager=mock_display_manager,
-        llm=mock_llm_client,
+        llm_interface=Mock(),  # LLMInterfaceをモック
         config=mock_config,
         error_handler=error_handler,
         verbose=True
@@ -189,7 +189,7 @@ async def test_max_retries_exceeded(temp_dir, mock_config, mock_llm_client):
         connection_manager=mock_connection_manager,
         state_manager=mock_state_manager,
         display_manager=mock_display_manager,
-        llm=mock_llm_client,
+        llm_interface=Mock(),  # LLMInterfaceをモック
         config=mock_config,
         error_handler=None,
         verbose=True

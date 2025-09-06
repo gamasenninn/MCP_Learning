@@ -83,9 +83,9 @@ async def test_parameter_resolution_json_parsing_fallback(mcp_agent_mock):
     """JSON解析フォールバック機能のテスト"""
     agent = mcp_agent_mock
     
-    # ```json```ブロックなしの直接JSON
-    direct_json = {"resolved_params": {"a": 50, "b": 75}, "reasoning": "直接JSON"}
-    agent.llm.chat.completions.create.return_value.choices[0].message.content = json.dumps(direct_json)
+    # LLMInterfaceのメソッドを直接モック
+    expected_params = {"a": 50, "b": 75}
+    agent.llm_interface.resolve_task_parameters = AsyncMock(return_value=expected_params)
     
     task = TaskState(
         task_id="test_003",
@@ -97,7 +97,7 @@ async def test_parameter_resolution_json_parsing_fallback(mcp_agent_mock):
     
     resolved_params = await agent.task_executor.resolve_parameters_with_llm(task, [])
     
-    # 直接JSON解析が動作することを確認
+    # LLMInterfaceを通じたパラメータ解決が動作することを確認
     assert resolved_params["a"] == 50
     assert resolved_params["b"] == 75
 

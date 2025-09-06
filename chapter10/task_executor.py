@@ -402,7 +402,7 @@ class TaskExecutor:
                 self.logger.ulog(f"{error_msg}", "error:error", show_level=True)
             
             # 2. LLM判断を常に実行（ErrorHandlerが利用可能な場合）
-            if self.error_handler and self.llm:
+            if self.error_handler and self.llm_interface:
                 try:
                     self.logger.ulog("LLM判断を開始...", "info:analysis", show_level=True)
                     

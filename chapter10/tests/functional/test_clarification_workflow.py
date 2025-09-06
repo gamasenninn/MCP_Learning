@@ -97,7 +97,7 @@ async def test_end_to_end_clarification_logging():
         conversation_manager = ConversationManager(state_manager, mock_config)
         
         mock_llm = AsyncMock()
-        task_manager = TaskManager(state_manager, mock_llm)
+        task_manager = TaskManager(state_manager)
         
         # === CLARIFICATION処理のフルワークフローをシミュレート ===
         
@@ -235,7 +235,7 @@ async def test_skip_command_workflow():
         )
         conversation_manager = ConversationManager(state_manager, mock_config)
         mock_llm = AsyncMock()
-        task_manager = TaskManager(state_manager, mock_llm)
+        task_manager = TaskManager(state_manager)
         
         # 1. ユーザークエリ
         user_query = "複利計算をして"

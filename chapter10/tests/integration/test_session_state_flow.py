@@ -94,7 +94,7 @@ Available tools:
         )
         
         # TaskManagerとConversationManagerを初期化
-        task_manager = TaskManager(state_manager, llm_client)
+        task_manager = TaskManager(state_manager)
         conversation_manager = ConversationManager(state_manager, agent.config)
         
         agent.task_manager = task_manager

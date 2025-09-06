@@ -207,7 +207,9 @@ async def test_llm_judgment_always_executed():
     mock_connection_manager = MagicMock()
     mock_connection_manager.call_tool = AsyncMock(return_value="正常な結果")
     
-    error_handler = ErrorHandler(config=mock_config, llm=mock_llm, verbose=True)
+    # LLMInterfaceをモックしてErrorHandlerを初期化
+    mock_llm_interface = Mock()
+    error_handler = ErrorHandler(config=mock_config, llm_interface=mock_llm_interface, verbose=True)
     
     task_executor = TaskExecutor(
         task_manager=MagicMock(),
