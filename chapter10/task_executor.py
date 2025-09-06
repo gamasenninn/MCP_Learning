@@ -15,7 +15,6 @@ import json
 import re
 import time
 from typing import Dict, List, Any, Optional, Union
-from openai import AsyncOpenAI
 
 from state_manager import TaskState, StateManager
 from task_manager import TaskManager
@@ -25,6 +24,7 @@ from error_handler import ErrorHandler
 from config_manager import Config
 from utils import safe_str, Logger
 from interrupt_manager import get_interrupt_manager
+from llm_interface import LLMInterface
 
 # カスタム例外
 class EscInterrupt(Exception):
@@ -49,7 +49,7 @@ class TaskExecutor:
                  connection_manager: ConnectionManager,
                  state_manager: StateManager,
                  display_manager: DisplayManager,
-                 llm: AsyncOpenAI,
+                 llm_interface: LLMInterface,
                  config: Config,
                  error_handler: ErrorHandler = None,
                  verbose: bool = True):
@@ -59,7 +59,7 @@ class TaskExecutor:
             connection_manager: MCP接続管理クラス
             state_manager: 状態管理クラス
             display_manager: 表示管理クラス
-            llm: OpenAI LLMクライアント
+            llm_interface: LLM統一インターフェース
             config: 設定辞書
             error_handler: エラー処理クラス（オプション）
             verbose: 詳細ログ出力
@@ -68,7 +68,7 @@ class TaskExecutor:
         self.connection_manager = connection_manager
         self.state_manager = state_manager
         self.display = display_manager
-        self.llm = llm
+        self.llm_interface = llm_interface
         self.config = config
         self.error_handler = error_handler
         self.verbose = verbose
@@ -279,46 +279,24 @@ class TaskExecutor:
             # LLM呼び出し前の中断チェック
             if self.interrupt_manager.check_interrupt():
                 self.logger.ulog("[CHECK] パラメータ解決前に中断検知", "info:interrupt", always_print=True)
-                # ここでは例外は投げずにデフォルトパラメータを返す
                 return params
             
-            params_llm = self._get_llm_params(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1
+            # LLMInterfaceを使用してパラメータを解決
+            tools_info = self.connection_manager.format_tools_for_llm()
+            user_query = f"タスク: {description}"
+            
+            task_dict = {
+                'tool': tool,
+                'params': params,
+                'description': description
+            }
+            
+            return await self.llm_interface.resolve_task_parameters(
+                task_dict=task_dict,
+                context=execution_context or [],
+                tools_info=tools_info,
+                user_query=user_query
             )
-            response = await self.llm.chat.completions.create(**params_llm)
-            
-            response_text = response.choices[0].message.content
-            
-            # JSONブロックを抽出
-            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
-            if json_match:
-                try:
-                    json_text = json_match.group(1).strip()
-                    result = json.loads(json_text)
-                    resolved_params = result.get("resolved_params", params)
-                    reasoning = result.get("reasoning", "")
-                    
-                    self.logger.ulog(f"{reasoning}", "info:param", show_level=True)
-                    
-                    return resolved_params
-                except json.JSONDecodeError:
-                    pass
-            else:
-                # ```json```ブロックがない場合
-                try:
-                    result = json.loads(response_text.strip())
-                    resolved_params = result.get("resolved_params", params)
-                    reasoning = result.get("reasoning", "")
-                    
-                    self.logger.ulog(f"{reasoning}", "info:param", show_level=True)
-                    
-                    return resolved_params
-                except json.JSONDecodeError:
-                    pass
-            
-            self.logger.ulog(f"JSON解析エラー: {response_text[:100]}...", "error:param", show_level=True)
-            return params
             
         except Exception as e:
             self.logger.ulog(f"{e}", "error:param", show_level=True)
@@ -484,26 +462,3 @@ class TaskExecutor:
         # ここには到達しないはずだが、念のため
         return None
     
-    def _get_llm_params(self, **kwargs) -> Dict:
-        """
-        モデルに応じたパラメータを生成
-        
-        Args:
-            **kwargs: LLMパラメータ
-            
-        Returns:
-            調整済みパラメータ辞書
-        """
-        model = self.config.llm.model
-        params = {"model": model, **kwargs}
-        
-        if model.startswith("gpt-5"):
-            # GPT-5系の設定
-            params["max_completion_tokens"] = self.config.llm.max_completion_tokens
-            params["reasoning_effort"] = self.config.llm.reasoning_effort
-            
-            # GPT-5系はtemperature=1のみサポート
-            if "temperature" in params:
-                params["temperature"] = 1.0
-        
-        return params

@@ -15,10 +15,10 @@ import json
 import re
 import time
 from typing import Dict, Any, Optional, Callable, List, Union
-from openai import AsyncOpenAI
 
 from config_manager import Config
 from utils import safe_str, Logger
+from llm_interface import LLMInterface
 
 
 class ErrorHandler:
@@ -47,15 +47,15 @@ class ErrorHandler:
         }
     }
     
-    def __init__(self, config: Config, llm: Optional[AsyncOpenAI] = None, verbose: bool = True):
+    def __init__(self, config: Config, llm_interface: Optional[LLMInterface] = None, verbose: bool = True):
         """
         Args:
             config: 設定辞書またはConfigオブジェクト
-            llm: OpenAI LLMクライアント（パラメータ修正用）
+            llm_interface: LLM統一インターフェース（パラメータ修正用）
             verbose: 詳細ログ出力
         """
         self.config = config
-        self.llm = llm
+        self.llm_interface = llm_interface
         self.verbose = verbose
         self.logger = Logger(verbose=verbose)
         self.current_user_query = ""
@@ -114,64 +114,24 @@ class ErrorHandler:
         Returns:
             修正されたパラメータ（修正できない場合はNone）
         """
-        if not self.llm:
+        if not self.llm_interface:
             if self.verbose:
-                self.logger.ulog("LLMが利用できないため自動修正をスキップ", "info:correction")
+                self.logger.ulog("LLMInterfaceが利用できないため自動修正をスキップ", "info:correction")
             return None
         
         try:
-            prompt = f"""ツール実行時にエラーが発生しました。パラメータを修正してください。
-
-## エラー情報
-ツール: {tool}
-エラーメッセージ: {error_msg}
-現在のパラメータ: {json.dumps(params, ensure_ascii=False)}
-
-## 利用可能なツール定義
-{tools_info}
-
-## 修正指針
-1. エラーメッセージを分析してパラメータの問題を特定
-2. ツール定義を確認して正しいパラメータ形式を理解
-3. 一般的な修正パターン：
-   - 日本語パラメータ → 英語に変換（例：「北京」→「Beijing」）
-   - テーブル・カラム名の修正
-   - 型変換（文字列 ↔ 数値）
-   - 必須パラメータの追加
-
-## 出力形式
-修正可能な場合：
-```json
-{{"修正成功": true, "params": {{修正されたパラメータ}}}}
-```
-
-修正不可能な場合：
-```json
-{{"修正成功": false, "理由": "修正できない理由"}}
-```"""
-
-            response = await self.llm.chat.completions.create(
-                model=self.config.llm.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1  # 低温度で安定した修正
+            fixed_params = await self.llm_interface.fix_error_parameters(
+                tool=tool,
+                params=params,
+                error_msg=error_msg,
+                tools_info=tools_info,
+                user_query=self.current_user_query
             )
             
-            response_text = response.choices[0].message.content
-            
-            # JSONブロックを抽出
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group(1))
-                if result.get("修正成功"):
-                    self.error_stats["auto_fixed"] += 1
-                    if self.verbose:
-                        self.logger.ulog(f"パラメータを自動修正: {result.get('params')}", "info:correction")
-                    return result.get("params")
-            
-            if self.verbose:
-                self.logger.ulog(f"LLM応答の解析に失敗: {response_text[:100]}...", "error:correction")
-            
-            return None
+            if fixed_params:
+                self.error_stats["auto_fixed"] += 1
+                
+            return fixed_params
             
         except Exception as e:
             if self.verbose:
@@ -335,46 +295,19 @@ class ErrorHandler:
 - 集計JOIN: `SELECT a.name, SUM(b.amount) FROM table1 a JOIN table2 b ON a.id = b.foreign_id GROUP BY a.name`
 - ソート: `ORDER BY SUM(b.amount) DESC`"""
     
-    def _get_llm_params(self, **kwargs) -> Dict:
-        """モデルに応じたパラメータを生成"""
-        model = self.config.llm.model
-        params = {"model": model, **kwargs}
-        
-        if model.startswith("gpt-5"):
-            # GPT-5系の設定
-            params["max_completion_tokens"] = self.config.llm.max_completion_tokens
-            params["reasoning_effort"] = self.config.llm.reasoning_effort
-            
-            # GPT-5系はtemperature=1のみサポート
-            if "temperature" in params:
-                params["temperature"] = 1.0
-        
-        return params
     
     async def call_llm_for_judgment(self, prompt: str) -> Dict:
         """LLMに判断を依頼してJSON結果を返す"""
-        try:
-            params = self._get_llm_params(
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.1
-            )
-            response = await self.llm.chat.completions.create(**params)
-            
-            raw_response = response.choices[0].message.content
-            self.logger.ulog(f"{safe_str(raw_response)[:500]}", "debug:llm_response", show_level=True)
-            
-            return json.loads(raw_response)
-            
-        except Exception as e:
-            self.logger.ulog(f"{e}", "error:llm_error", show_level=True)
-            # フォールバック: 成功として扱う
+        if not self.llm_interface:
+            # LLMInterfaceが利用できない場合はフォールバック
             return {
                 "is_success": True,
                 "needs_retry": False,
-                "processed_result": "LLM判断に失敗しました。結果をそのまま表示します。",
-                "summary": "LLM判断エラーによるフォールバック"
+                "processed_result": "LLMInterfaceが利用できません。結果をそのまま表示します。",
+                "summary": "LLMInterface未初期化によるフォールバック"
             }
+        
+        return await self.llm_interface.judge_tool_execution_result(prompt)
     
     def log_judgment_result(self, judgment: Dict):
         """判断結果の詳細ログ出力"""

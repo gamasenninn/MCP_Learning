@@ -38,9 +38,8 @@ class TaskManager:
     - LLMベースのパラメータ推論
     """
     
-    def __init__(self, state_manager: StateManager, llm_client=None):
+    def __init__(self, state_manager: StateManager):
         self.state_manager = state_manager
-        self.llm_client = llm_client
         self.task_counter = 0
     
     def _generate_task_id(self) -> str:

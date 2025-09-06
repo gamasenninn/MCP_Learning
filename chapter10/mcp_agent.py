@@ -25,6 +25,7 @@ from conversation_manager import ConversationManager
 from task_executor import TaskExecutor
 from interrupt_manager import get_interrupt_manager
 from background_input_monitor import get_background_monitor
+from llm_interface import LLMInterface
 
 # Rich UI support
 try:
@@ -60,18 +61,21 @@ class MCPAgent:
     def _initialize_core_components(self):
         """コアコンポーネント（外部サービス、設定、データ構造）の初期化"""
         # 外部サービス
-        self.llm = AsyncOpenAI()
+        self.llm_client = AsyncOpenAI()
         self.connection_manager = ConnectionManager()
         
-        # ErrorHandlerにConfig型を直接渡す
+        # LLMInterface統一インターフェースを初期化
+        self.llm_interface = LLMInterface(self.config, self.logger, self.llm_client)
+        
+        # ErrorHandlerにLLMInterfaceを渡す
         self.error_handler = ErrorHandler(
             config=self.config,
-            llm=self.llm,
+            llm_interface=self.llm_interface,
             verbose=self.config.development.verbose
         )
         
         self.state_manager = StateManager()
-        self.task_manager = TaskManager(self.state_manager, self.llm)
+        self.task_manager = TaskManager(self.state_manager)
         # ConversationManagerにConfig型を直接渡す
         self.conversation_manager = ConversationManager(self.state_manager, self.config)
         
@@ -136,7 +140,7 @@ class MCPAgent:
             connection_manager=self.connection_manager,
             state_manager=self.state_manager,
             display_manager=self.display,
-            llm=self.llm,
+            llm_interface=self.llm_interface,
             config=self.config,
             error_handler=self.error_handler,
             verbose=self.verbose
@@ -297,41 +301,9 @@ class MCPAgent:
     async def _determine_execution_type(self, user_query: str) -> Dict:
         """CLARIFICATION対応の実行方式判定"""
         recent_context = self.conversation_manager.get_recent_context(include_results=False)
-        
-        # 利用可能なツール情報を取得
         tools_info = self.connection_manager.format_tools_for_llm()
         
-        # プロンプトテンプレートから取得
-        prompt = PromptTemplates.get_execution_type_determination_prompt(
-            recent_context=recent_context,
-            user_query=user_query,
-            tools_info=tools_info
-        )
-
-        try:
-            params = self._get_llm_params(
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.1
-            )
-            response = await self.llm.chat.completions.create(**params)
-            
-            content = safe_str(response.choices[0].message.content)
-            result = json.loads(content)
-            
-            # CLARIFICATION も含む
-            # 統一化により、NO_TOOL, CLARIFICATION以外は全てTOOLに統一
-            if result.get('type') not in ['NO_TOOL', 'CLARIFICATION']:
-                result['type'] = 'TOOL'
-            
-            
-            self.logger.ulog(f"判定: {result.get('type', 'UNKNOWN')} - {result.get('reason', '')}", "info:classification", show_level=True)
-            
-            return result
-            
-        except Exception as e:
-            self.logger.ulog(f"実行方式判定失敗: {e}", "error:error")
-            return {"type": "TOOL", "reason": "判定エラーによりデフォルト選択"}
+        return await self.llm_interface.determine_execution_type(user_query, recent_context, tools_info)
     
     async def _handle_pending_tasks(self, user_query: str) -> str:
         """未完了タスクがある場合の処理"""
@@ -465,24 +437,6 @@ class MCPAgent:
             
         return await self._interpret_planned_results(user_query, execution_context)
     
-    def _get_llm_params(self, **kwargs) -> Dict:
-        """モデルに応じたパラメータを生成"""
-        model = self.config.llm.model
-        params = {"model": model, **kwargs}
-        
-        if model.startswith("gpt-5"):
-            # GPT-5系の設定
-            params["max_completion_tokens"] = self.config.llm.max_completion_tokens
-            params["reasoning_effort"] = self.config.llm.reasoning_effort
-            
-            # GPT-5系はtemperature=1のみサポート
-            if "temperature" in params:
-                params["temperature"] = 1.0
-        else:
-            # GPT-4系は既存設定を維持（max_tokensは指定しない）
-            pass
-        
-        return params
     
     async def _generate_task_list_with_retry(self, user_query: str) -> List[Dict]:
         """
@@ -599,34 +553,14 @@ class MCPAgent:
     
     async def _generate_interpretation_response(self, user_query: str, serializable_results: List[Dict]) -> str:
         """LLMによる結果解釈処理"""
-        # 現在のリクエストのみに焦点を当て、前のタスク結果の混入を防ぐ
         recent_context = self.conversation_manager.get_recent_context(include_results=False)
         
-        # プロンプトテンプレートから取得
-        prompt = PromptTemplates.get_result_interpretation_prompt(
-            recent_context=recent_context,
+        return await self.llm_interface.interpret_results(
             user_query=user_query,
-            serializable_results=json.dumps(serializable_results, ensure_ascii=False, indent=2),
+            results=serializable_results,
+            context=recent_context,
             custom_instructions=self.custom_instructions
         )
-
-        try:
-            params = self._get_llm_params(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3
-            )
-            response = await self.llm.chat.completions.create(**params)
-            
-            # 最終応答を取得
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            # フォールバック
-            successful_results = [r for r in serializable_results if r["success"]]
-            if successful_results:
-                return f"実行完了しました。{len(successful_results)}個のタスクが成功しました。"
-            else:
-                return f"申し訳ありませんが、処理中にエラーが発生しました。"
     
     def _handle_result_display_and_storage(self, final_response: str, serializable_results: List[Dict]) -> None:
         """表示・保存処理"""
@@ -674,36 +608,15 @@ class MCPAgent:
     
     async def _generate_unified_task_list(self, user_query: str, temperature: float = 0.3) -> List[Dict[str, Any]]:
         """統一タスクリスト生成（SIMPLE/COMPLEX統合版）"""
-        try:
-            recent_context = self.conversation_manager.get_recent_context(include_results=False)
-            tools_info = self.connection_manager.format_tools_for_llm()
-            
-            # 統一プロンプトを使用（custom_instructionsはAGENT.mdから）
-            prompt = PromptTemplates.get_unified_task_list_prompt(
-                recent_context=recent_context,
-                user_query=user_query,
-                tools_info=tools_info,
-                custom_instructions=self.custom_instructions
-            )
-            
-            params = self._get_llm_params(
-                messages=[{"role": "system", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=temperature
-            )
-            response = await self.llm.chat.completions.create(**params)
-            
-            content = safe_str(response.choices[0].message.content)
-            result = json.loads(content)
-            
-            tasks = result.get("tasks", [])
-            
-            return tasks
-            
-        except Exception as e:
-            self.logger.ulog(f"タスクリスト生成失敗: {e}", "error", show_level=True)
-            # フォールバック処理は削除 - エラー時は空リストを返す
-            return []
+        recent_context = self.conversation_manager.get_recent_context(include_results=False)
+        tools_info = self.connection_manager.format_tools_for_llm()
+        
+        return await self.llm_interface.generate_task_list(
+            user_query=user_query,
+            context=recent_context,
+            tools_info=tools_info,
+            custom_instructions=self.custom_instructions
+        )
     
     async def close(self):
         """リソースの解放"""
