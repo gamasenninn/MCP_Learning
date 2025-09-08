@@ -48,7 +48,7 @@ async def test_llm_connection(real_llm_client):
 async def test_mcp_agent_initialization(real_mcp_agent):
     """MCPエージェントの初期化確認"""
     assert real_mcp_agent is not None
-    assert real_mcp_agent.llm_client is not None  # llm -> llm_clientに変更
+    assert real_mcp_agent.llm_interface is not None  # LLMInterfaceを確認
     assert real_mcp_agent.config is not None
     
     # 基本的な設定が読み込まれているか確認

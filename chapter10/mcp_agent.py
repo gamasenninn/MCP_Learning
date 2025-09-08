@@ -11,7 +11,6 @@ import asyncio
 import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from openai import AsyncOpenAI
 
 from connection_manager import ConnectionManager
 from display_manager import DisplayManager
@@ -65,11 +64,10 @@ class MCPAgent:
     def _initialize_core_components(self):
         """コアコンポーネント（外部サービス、設定、データ構造）の初期化"""
         # 外部サービス
-        self.llm_client = AsyncOpenAI()
         self.connection_manager = ConnectionManager()
         
         # LLMInterface統一インターフェースを初期化
-        self.llm_interface = LLMInterface(self.config, self.logger, self.llm_client)
+        self.llm_interface = LLMInterface(self.config, self.logger)
         
         # ErrorHandlerにLLMInterfaceを渡す
         self.error_handler = ErrorHandler(

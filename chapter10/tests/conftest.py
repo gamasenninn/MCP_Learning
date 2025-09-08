@@ -204,7 +204,7 @@ def real_api_key():
 
 @pytest_asyncio.fixture
 async def real_llm_client(real_api_key):
-    """実際のOpenAI APIクライアント"""
+    """実際のOpenAI APIクライアント（非推奨、後方互換性のため保持）"""
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=real_api_key)
