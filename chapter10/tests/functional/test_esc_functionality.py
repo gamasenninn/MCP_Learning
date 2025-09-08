@@ -136,11 +136,11 @@ async def test_esc_skip_workflow():
     
     try:
         # MCPAgentの基本動作テスト（モック使用）
-        with patch('mcp_agent.AsyncOpenAI'), \
-             patch('mcp_agent.ConnectionManager'), \
+        with patch('mcp_agent.ConnectionManager'), \
              patch('mcp_agent.StateManager'), \
              patch('mcp_agent.TaskManager'), \
-             patch('mcp_agent.ConfigManager.load') as mock_config:
+             patch('mcp_agent.ConfigManager.load') as mock_config, \
+             patch('llm_interface.AsyncOpenAI') as mock_openai:
             
             mock_config.return_value = Config(
                 display=DisplayConfig(ui_mode="basic", show_timing=False, show_thinking=False),

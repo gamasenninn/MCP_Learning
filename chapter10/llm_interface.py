@@ -16,18 +16,17 @@ from utils import Logger, safe_str
 class LLMInterface:
     """全LLM通信の統一インターフェース"""
     
-    def __init__(self, config: Config, logger: Logger, client: AsyncOpenAI):
+    def __init__(self, config: Config, logger: Logger):
         """
         初期化
         
         Args:
             config: 設定オブジェクト
             logger: ロガー
-            client: OpenAIクライアント
         """
         self.config = config
         self.logger = logger
-        self.client = client
+        self.client = AsyncOpenAI()
     
     def _get_llm_params(self, messages: List[Dict], **kwargs) -> Dict[str, Any]:
         """LLM呼び出しパラメータを統一生成"""

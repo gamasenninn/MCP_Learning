@@ -75,23 +75,23 @@ async def test_gpt4_parameter_generation(mcp_agent_mock):
 def test_gpt5_models_support():
     """GPT-5モデルサポートのテスト"""
     from llm_interface import LLMInterface
-    from unittest.mock import Mock
+    from unittest.mock import Mock, patch
     
-    # モックのLoggerとAsyncOpenAIクライアントを作成
+    # モックのLoggerを作成
     mock_logger = Mock()
-    mock_client = Mock()
     
     gpt5_models = ["gpt-5-mini", "gpt-5-nano", "gpt-5"]
     
     for model in gpt5_models:
         config = Config(llm=LLMConfig(model=model))
-        llm_interface = LLMInterface(config, mock_logger, mock_client)
-        params = llm_interface._get_llm_params(messages=[])
-        
-        # 全てのGPT-5モデルで適切なパラメータが生成されることを確認
-        assert params["model"] == model
-        assert "max_completion_tokens" in params
-        assert "reasoning_effort" in params
+        with patch('llm_interface.AsyncOpenAI') as mock_openai:
+            llm_interface = LLMInterface(config, mock_logger)
+            params = llm_interface._get_llm_params(messages=[])
+            
+            # 全てのGPT-5モデルで適切なパラメータが生成されることを確認
+            assert params["model"] == model
+            assert "max_completion_tokens" in params
+            assert "reasoning_effort" in params
 
 
 @pytest.mark.integration 
@@ -99,11 +99,10 @@ def test_gpt5_models_support():
 def test_reasoning_effort_levels():
     """推論レベル設定のテスト"""
     from llm_interface import LLMInterface
-    from unittest.mock import Mock
+    from unittest.mock import Mock, patch
     
-    # モックのLoggerとAsyncOpenAIクライアントを作成
+    # モックのLoggerを作成
     mock_logger = Mock()
-    mock_client = Mock()
     
     config = Config(
         llm=LLMConfig(
@@ -113,8 +112,9 @@ def test_reasoning_effort_levels():
         )
     )
     
-    llm_interface = LLMInterface(config, mock_logger, mock_client)
-    params = llm_interface._get_llm_params(messages=[])
-    
-    assert params["reasoning_effort"] == "high"
-    assert params["max_completion_tokens"] == 2000
+    with patch('llm_interface.AsyncOpenAI') as mock_openai:
+        llm_interface = LLMInterface(config, mock_logger)
+        params = llm_interface._get_llm_params(messages=[])
+        
+        assert params["reasoning_effort"] == "high"
+        assert params["max_completion_tokens"] == 2000

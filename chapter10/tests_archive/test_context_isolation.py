@@ -27,7 +27,7 @@ class TestContextIsolation(unittest.TestCase):
         # MCPAgentのインスタンスを作成（モック使用）
         with patch('mcp_agent.ConnectionManager'), \
              patch('mcp_agent.ErrorHandler'), \
-             patch('mcp_agent.AsyncOpenAI'):
+             patch('llm_interface.AsyncOpenAI'):
             
             self.agent = MCPAgent()
             
@@ -245,7 +245,7 @@ class TestContextEdgeCases(unittest.TestCase):
     def setUp(self):
         with patch('mcp_agent.ConnectionManager'), \
              patch('mcp_agent.ErrorHandler'), \
-             patch('mcp_agent.AsyncOpenAI'):
+             patch('llm_interface.AsyncOpenAI'):
             
             self.agent = MCPAgent()
 
