@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Step C: 安全なクエリ実行機能を追加
+安全なクエリ実行機能を追加
 """
 
 import sqlite3
@@ -188,7 +188,7 @@ def execute_safe_query(sql: str) -> Dict[str, Any]:
 
 # サーバー起動
 if __name__ == "__main__":
-    print("[起動] MCPサーバー（Step C版）を起動します...")
-    print("[ツール] 利用可能なツール: list_tables, get_table_schema, execute_safe_query")
+    print("[起動] MCPサーバーを起動します...")
+    print("[ツール] 利用可能なツール: list_tables, execute_safe_query")
     print("[セキュリティ] セキュリティ機能: 多層防御でSQLインジェクション対策")
     mcp.run()

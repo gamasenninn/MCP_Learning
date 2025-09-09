@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Step D: プロンプト機能を追加した完全版
+Database Server 完全版ソース
 """
 
 import sqlite3
@@ -81,47 +81,6 @@ def list_tables() -> List[Dict[str, Any]]:
     return tables
 
 @mcp.tool()
-def get_table_schema(table_name: str) -> Dict[str, Any]:
-    """指定したテーブルの詳細なスキーマ情報を取得。
-    
-    カラム名、データ型、NULL制約、デフォルト値、プライマリキー情報を含む。
-    テーブル構造の理解、SQL作成の準備に使用。
-    例：「usersテーブルの構造を見たい」「商品テーブルのカラムを確認」
-    """
-    conn = get_db_connection()
-    
-    cursor = conn.execute('''
-    SELECT name FROM sqlite_master 
-    WHERE type='table' AND name=?
-    ''', (table_name,))
-    
-    if not cursor.fetchone():
-        conn.close()
-        raise ValueError(f"テーブル '{table_name}' は存在しません")
-    
-    cursor = conn.execute(f'PRAGMA table_info({table_name})')
-    columns = []
-    for row in cursor.fetchall():
-        columns.append({
-            "name": row[1],
-            "type": row[2],
-            "not_null": bool(row[3]),
-            "default_value": row[4],
-            "is_primary_key": bool(row[5])
-        })
-    
-    cursor = conn.execute(f'SELECT COUNT(*) as count FROM {table_name}')
-    record_count = cursor.fetchone()["count"]
-    
-    conn.close()
-    
-    return {
-        "table_name": table_name,
-        "columns": columns,
-        "record_count": record_count
-    }
-
-@mcp.tool()
 def execute_safe_query(sql: str) -> Dict[str, Any]:
     """SELECTクエリのみを安全に実行。データの検索、集計、分析に使用。
     
@@ -129,7 +88,7 @@ def execute_safe_query(sql: str) -> Dict[str, Any]:
     JOIN、GROUP BY、ORDER BY、WHERE句などはOK。
     結果はJSON形式でカラム名、データ、実行時刻を含む。
     
-    重要：まずlist_tablesとget_table_schemaでテーブル構造を確認してからSQLを作成すること。
+    重要：まずlist_tablesでテーブル構造を確認してからSQLを作成すること。
     例：「売上合計を計算」→salesテーブルを使用、「商品一覧」→productsテーブルを使用
     """
     if not validate_sql_safety(sql):
@@ -160,5 +119,5 @@ def execute_safe_query(sql: str) -> Dict[str, Any]:
 # サーバー起動
 if __name__ == "__main__":
     print("[起動] MCPサーバー（プロンプト機能付き完全版）を起動します...")
-    print("[ツール] 利用可能なツール: list_tables, get_table_schema, execute_safe_query")
+    print("[ツール] 利用可能なツール: list_tables, execute_safe_query")
     mcp.run()
