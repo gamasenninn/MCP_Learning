@@ -279,9 +279,18 @@ class MCPAgent:
     
     async def _handle_execution_flow(self, user_query: str) -> str:
         """実行フローの制御"""
-        # 未完了のタスクがある場合の処理
-        if self.state_manager.has_pending_tasks():
+        # CLARIFICATION待ちタスクがある場合のみ継続処理
+        if self.clarification_handler.has_pending_clarifications():
             return await self._handle_pending_tasks(user_query)
+        
+        # CLARIFICATIONでない通常タスクが残っている場合はクリア（新しいリクエストを優先）
+        if self.state_manager.has_pending_tasks():
+            pending_tasks = self.state_manager.get_pending_tasks()
+            non_clarification_tasks = [t for t in pending_tasks if t.tool != "CLARIFICATION"]
+            if non_clarification_tasks:
+                # 古いタスクをクリア
+                for task in non_clarification_tasks:
+                    await self.state_manager.move_task_to_completed(task.task_id, {"skipped": True, "reason": "新しいリクエストのため自動スキップ"})
         
         self.display.show_analysis("リクエストを分析中...")
         
