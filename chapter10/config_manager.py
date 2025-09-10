@@ -8,6 +8,7 @@ import os
 import yaml
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
+from utils import Logger
 
 
 @dataclass
@@ -282,10 +283,10 @@ class ConfigManager:
             return ConfigManager._save_config_with_comments(config, config_path)
         except ImportError:
             # ruamel.yamlがない場合は従来の方法にフォールバック
-            print("Info: ruamel.yaml not available, using standard yaml (comments will be lost)")
+            Logger().ulog("ruamel.yaml not available, using standard yaml (comments will be lost)", "info:config")
             return ConfigManager._save_config_simple(config, config_path)
         except Exception as e:
-            print(f"Warning: コメント保持保存に失敗: {e}")
+            Logger().ulog(f"コメント保持保存に失敗: {e}", "warning:config")
             # フォールバックを試行
             return ConfigManager._save_config_simple(config, config_path)
     

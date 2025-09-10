@@ -152,7 +152,7 @@ class StateManager:
             return session_id
             
         except Exception as e:
-            print(f"セッション復元エラー: {e}")
+            self.logger.ulog(f"セッション復元エラー: {e}", "error:session")
             return await self._create_new_session()
     
     async def _save_session(self):

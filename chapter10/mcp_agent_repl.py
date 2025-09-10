@@ -15,6 +15,7 @@ from mcp_agent import MCPAgent
 from repl_commands import CommandManager
 from interrupt_manager import get_interrupt_manager
 from task_executor import EscInterrupt
+from utils import Logger
 
 # prompt_toolkit support
 try:
@@ -40,7 +41,7 @@ def create_prompt_session(agent):
 
 async def main():
     """メイン実行関数"""
-    print("MCP Agent を起動しています...")
+    Logger().ulog("MCP Agent を起動しています...", "info:startup", always_print=True)
     agent = MCPAgent()
     await agent.initialize()
     

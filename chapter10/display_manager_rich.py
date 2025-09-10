@@ -17,7 +17,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 
-from utils import safe_str
+from utils import safe_str, Logger
 
 # Rich imports (optional dependency)
 try:
@@ -425,10 +425,10 @@ if not RICH_AVAILABLE:
     class RichDisplayManager(DisplayManager):
         """Rich未インストール時のフォールバック"""
         def __init__(self, *args, **kwargs):
-            # loggerが渡されていればwarning使用、なければprint
+            # loggerが渡されていればwarning使用、なければLoggerを直接使用
             logger = kwargs.get('logger')
             if logger:
                 logger.ulog("Rich library not available. Using basic display.", "warning", show_level=True)
             else:
-                print("[WARNING] Rich library not available. Using basic display.")
+                Logger().ulog("Rich library not available. Using basic display.", "warning:display", show_level=True)
             super().__init__(*args, **kwargs)
