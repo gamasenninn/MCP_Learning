@@ -140,9 +140,9 @@ class MCPAgent:
         if self.verbose:
             self.display.show_banner()
             if self._is_rich_ui_enabled():
-                self.logger.ulog("Rich UI mode enabled", "info", show_level=True)
+                self.logger.ulog("Rich UI mode enabled", "info")
             else:
-                self.logger.ulog("Basic UI mode enabled", "info", show_level=True)
+                self.logger.ulog("Basic UI mode enabled", "info")
     
     def _initialize_task_executor(self):
         """TaskExecutorの初期化（全コンポーネント初期化後に実行）"""

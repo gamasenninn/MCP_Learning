@@ -126,7 +126,7 @@ class TaskExecutor:
         for i, task in enumerate(executable_tasks):
             # 中断チェックポイント1: タスク開始前
             interrupt_status = self.interrupt_manager.get_status()
-            self.logger.ulog(f"[STATUS] タスク{i+1}開始前: 中断状態={interrupt_status['interrupt_state']}", "debug:interrupt", always_print=True)  # 強制表示
+            self.logger.ulog(f"[STATUS] タスク{i+1}開始前: 中断状態={interrupt_status['interrupt_state']}", "debug:interrupt")  # デバッグ用
             
             if self.interrupt_manager.check_interrupt():
                 self.logger.ulog("[CHECK] タスク開始前に中断検知", "info:interrupt", always_print=True)
@@ -140,7 +140,7 @@ class TaskExecutor:
                     continue
                 # choice == 'continue' の場合は継続
             else:
-                self.logger.ulog(f"[DEBUG] 中断チェック結果: 継続実行", "debug:interrupt", always_print=True)
+                self.logger.ulog(f"[DEBUG] 中断チェック結果: 継続実行", "debug:interrupt")
             
             # タスク実行開始を記録
             self.interrupt_manager.start_execution(task.description)
