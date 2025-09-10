@@ -225,9 +225,9 @@ class InterruptManager:
                     self.confirm_interrupt()
                     return 'abort'
                 else:
-                    self.logger.ulog("無効な選択です。継続します。", "warning", always_print=True)
-                    self.ignore_interrupt()
-                    return 'continue'
+                    self.logger.ulog("無効な選択です。タスクをスキップします。", "warning", always_print=True)
+                    self.confirm_interrupt()
+                    return 'skip'
                     
             except (EOFError, KeyboardInterrupt):
                 self.logger.ulog("入力が中断されました。中止します。", "warning", always_print=True)
