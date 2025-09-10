@@ -305,6 +305,10 @@ class TaskExecutor:
             self.logger.ulog(f"{e}", "error:param", show_level=True)
             return params
     
+    async def _execute_tool_direct(self, tool: str, params: Dict, description: str = "") -> Any:
+        """中断なしでツールを直接実行"""
+        return await self.connection_manager.call_tool(tool, params)
+    
     async def _execute_tool_with_interrupt(self, tool: str, params: Dict):
         """
         中断可能なツール実行ラッパー
@@ -344,6 +348,9 @@ class TaskExecutor:
                 choice = 'abort'
             if choice == 'skip':
                 return SKIP
+            elif choice == 'continue':
+                # 継続の場合はツールを再実行
+                return await self._execute_tool_direct(tool, params, description)
             raise Exception("ユーザーによる中断")
         except Exception:
             monitor_task.cancel()
