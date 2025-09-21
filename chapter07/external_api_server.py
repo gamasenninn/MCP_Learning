@@ -132,7 +132,7 @@ def get_weather_forecast(city: str, days: int = 5, country_code: str = "JP") -> 
     }
 
 @mcp.tool()
-def get_latest_news(category: str = "general", country: str = "jp", limit: int = 5) -> dict:
+def get_latest_news(category: str = "general", country: str = "us", limit: int = 5) -> dict:
     """最新ニュースを取得します
     
     Args:
@@ -176,7 +176,7 @@ def get_latest_news(category: str = "general", country: str = "jp", limit: int =
     }
 
 @mcp.tool()
-def search_news(query: str, language: str = "ja", limit: int = 5) -> dict:
+def search_news(query: str, language: str = "en", limit: int = 5) -> dict:
     """キーワードでニュースを検索します
     
     Args:
