@@ -1,0 +1,20 @@
+[project]
+name = "mcp-learning"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "bs4>=0.0.2",
+    "fastmcp>=2.11.3",
+    "openai>=1.99.9",
+    "prompt-toolkit>=3.0.52",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=6.2.1",
+    "pytest-xdist>=3.8.0",
+    "python-dotenv>=1.1.1",
+    "pyyaml>=6.0.2",
+    "rich>=14.1.0",
+    "ruamel-yaml>=0.18.15",
+]
