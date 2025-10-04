@@ -3,97 +3,63 @@
 汎用MCPツール群 - Stage 1: Web機能 + Stage 2: コード実行（レベル2）
 """
 
-from fastmcp import FastMCP
+import os
 import requests
+from fastmcp import FastMCP
 from typing import Dict, Any
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 import subprocess
 import sys
 import tempfile
-import os
 
+load_dotenv()
 mcp = FastMCP("Universal Tools Server")
+
+TAVILY_API_KEY = os.getenv('TAVILY_API_KEY', '')
 
 # === Stage 1: Web機能 ===
 
 @mcp.tool()
 def web_search(query: str, num_results: int = 3) -> Dict[str, Any]:
     """
-    シンプルなWeb検索（Bing使用）
-    
-    Bingを使う理由：
-    - APIキーが不要（無料）
-    - 安定したHTML構造
-    - 日本語検索に対応
-    - 高品質な検索結果
+    TavilyでWeb検索を実行
     """
+    if not TAVILY_API_KEY:
+        return {'success': False, 'error': 'APIキーが未設定です'}
+
     try:
-        # 検索リクエスト
-        response = requests.get(
-            "https://www.bing.com/search",
-            params={'q': query, 'cc': 'JP'},
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Language': 'ja,en;q=0.9'
+        response = requests.post(
+            'https://api.tavily.com/search',
+            json={
+                'api_key': TAVILY_API_KEY,
+                'query': query,
+                'max_results': num_results
             },
             timeout=10
         )
-        response.raise_for_status()
-        
-        # HTML解析
-        soup = BeautifulSoup(response.text, 'html.parser')
-        results = []
-        
-        # 検索結果を抽出
-        for li in soup.find_all('li', class_='b_algo'):
-            if len(results) >= num_results:
-                break
-                
-            h2 = li.find('h2')
-            if not h2:
-                continue
-                
-            link = h2.find('a', href=True)
-            if not link:
-                continue
-            
-            # スニペット取得
-            snippet = ''
-            caption = li.find('div', class_='b_caption')
-            if caption:
-                p = caption.find('p')
-                if p:
-                    snippet = p.get_text(strip=True)
-            
-            results.append({
-                'position': len(results) + 1,
-                'title': link.get_text(strip=True),
-                'url': link.get('href', ''),
-                'snippet': snippet
-            })
-        
-        # 結果を整形
-        formatted = '\n\n'.join([
-            f"[{r['position']}] {r['title']}\n"
-            f"    URL: {r['url']}\n"
-            f"    {r['snippet'][:100]}{'...' if len(r['snippet']) > 100 else ''}"
-            for r in results
-        ]) if results else f'「{query}」の検索結果が見つかりませんでした'
-        
+        data = response.json()
+
+        # エラーチェック
+        if 'error' in data:
+            return {'success': False, 'error': data['error']}
+
+        # 結果を簡潔に整形
+        results = [{
+            'title': r['title'],
+            'url': r['url'],
+            'snippet': r['content'][:400]
+        } for r in data.get('results', [])]
+
         return {
             'success': True,
-            'query': query,
-            'results_count': len(results),
+            'answer': data.get('answer', ''),  # AI生成の要約
             'results': results,
-            'formatted': formatted
-        }
-        
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e),
             'query': query
         }
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
 @mcp.tool()
 def get_webpage_content(url: str) -> Dict[str, Any]:
@@ -199,6 +165,7 @@ def execute_python_basic(code: str) -> Dict[str, Any]:
         }
 
 if __name__ == "__main__":
+    print(f"Tavily API: {'OK' if TAVILY_API_KEY else 'None'}")
     print("汎用MCPツールサーバー")
     print("=" * 50)
     print("Stage 1: Web機能")
